@@ -1,0 +1,46 @@
+# Terraform local directories and state (sensitive)
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Variable files that may contain secrets
+terraform.tfvars
+*.auto.tfvars
+*.auto.tfvars.json
+
+# Local environment and credentials
+.env
+.env.*
+.envrc
+.aws/
+*.pem
+*.key
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+
+# Editor/OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+node_modules/
+
+# Kubernetes config/cache
+kubeconfig*
+.kube/
+
+# Helm local files
+.helm/
+
+# Python cache (if any tooling/scripts added)
+__pycache__/
+*.pyc
