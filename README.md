@@ -141,3 +141,4 @@ ALB Controller
 - Grafana and Prometheus use `ClusterIP`; Argo CD remains `LoadBalancer` by default.
 - Prometheus: `server.prefixURL` set, Alertmanager disabled; persistence forced off. Enable storage to re‑enable Alertmanager safely.
 - Worker node Name tags applied via launch template; override with EKS module var `node_name_tag`.
+# Renamed project
