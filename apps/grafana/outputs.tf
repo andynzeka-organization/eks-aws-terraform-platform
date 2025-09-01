@@ -16,6 +16,6 @@ Grafana
 - URL: ${coalesce(module.grafana.service_hostname, "<pending>") != null ? "http://" : ""}${coalesce(module.grafana.service_hostname, "<pending>")}
 - Username: admin
 - Password (sensitive output): terraform output grafana_admin_password
-- If no external address: kubectl -n grafana port-forward svc/grafana 3000:80
+- If no external address: kubectl -n monitoring port-forward svc/grafana 3000:80
 EOT
 }

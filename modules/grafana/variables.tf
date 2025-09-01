@@ -1,7 +1,7 @@
 variable "namespace" {
   description = "Namespace to install Grafana"
   type        = string
-  default     = "grafana"
+  default     = "monitoring"
 }
 
 variable "create_namespace" {
@@ -28,4 +28,3 @@ variable "service_annotations" {
   type        = map(string)
   default     = {}
 }
-

@@ -17,6 +17,7 @@ resource "helm_release" "prometheus" {
         type        = var.server_service_type
         annotations = var.server_service_annotations
       }
+      prefixURL = "/prometheus"
       ingress = {
         enabled = false
       }
@@ -41,6 +42,23 @@ resource "helm_release" "prometheus" {
       }
     }
   })]
+
+  // Force-disable persistence via explicit set to avoid chart defaults
+  set = [
+    {
+      name  = "server.persistentVolume.enabled"
+      value = "false"
+    },
+    {
+      name  = "alertmanager.persistentVolume.enabled"
+      value = "false"
+    },
+    // Disable Alertmanager entirely to avoid PVC/statefulset when no StorageClass is present
+    {
+      name  = "alertmanager.enabled"
+      value = "false"
+    }
+  ]
 
   depends_on = [kubernetes_namespace.prometheus_namespace]
 }

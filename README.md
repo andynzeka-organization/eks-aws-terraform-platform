@@ -5,6 +5,7 @@ Provision a production‑ready VPC and Amazon EKS cluster, plus optional add‑o
 **Highlights**
 - VPC with public/private subnets, IGW, NAT (per‑AZ or shared), and route tables.
 - EKS with managed node group, IAM roles, OIDC provider, and IRSA roles.
+- Single ALB Ingress for both Grafana and Prometheus using path routing (`/grafana`, `/prometheus`). No domain required — use the ALB DNS name.
 - Optional Helm‑based apps under `apps/` with a ready‑to‑use providers setup.
 - Worker EC2 instances are tagged with a `Name` (default: `demo-worker-node`).
 
@@ -45,6 +46,15 @@ Provision a production‑ready VPC and Amazon EKS cluster, plus optional add‑o
 - If you prefer manual, run:
   - `aws eks update-kubeconfig --name <your_cluster_name> --region <your_region>`
 
+4) Deploy platform apps (Argo CD, Grafana, Prometheus) with shared ALB Ingress:
+- `cd apps/platform`
+- `terraform init`
+- `terraform apply`
+- Outputs to use:
+  - `monitoring_ingress_hostname` → ALB DNS
+  - `grafana_ingress_url`, `prometheus_ingress_url`
+  - `post_install_summary` → handy cheatsheet of URLs and credentials
+
 ## Variables (Root)
 
 - `project_name`: name prefix for resources (default: `demo`)
@@ -82,19 +92,37 @@ Provision a production‑ready VPC and Amazon EKS cluster, plus optional add‑o
   - `apps/platform`: Argocd, Grafana, Prometheus in one stack
   - `apps/argocd`, `apps/grafana`, `apps/prometheus`: separate stacks
 
-To deploy an app stack, change into the directory and run Terraform there after the cluster is ready (kubeconfig configured). For example:
-- `cd apps/prometheus`
-- Update `providers.tf` remote state block or pass `-var cluster_name=...`
+To deploy an app stack individually, change into the directory and run Terraform there after the cluster is ready (kubeconfig configured). For example:
+- `cd apps/argocd | apps/grafana | apps/prometheus`
 - `terraform init`
 - `terraform apply`
 
-By default the Prometheus module uses `ClusterIP` Services. To expose via NLB, set `server_service_type = "LoadBalancer"` and provide the appropriate AWS LB annotations.
+Notes:
+- Grafana and Prometheus are installed as `ClusterIP` Services. They are exposed through one external ALB Ingress at `/grafana` and `/prometheus`.
+- Argo CD is installed as `LoadBalancer` by default (NLB). You can switch it to Ingress as well if you prefer a single ALB for everything.
 
 ## How It Works
 
 - The VPC module creates a VPC and per‑AZ public/private subnets, tags subnets for ELB/ILB usage and (optionally) cluster discovery, sets up IGW/NAT, and associates routes.
 - The EKS module creates IAM roles, the EKS control plane, OIDC provider, and a managed node group. Worker instances inherit the `Name` tag via a launch template.
 - A helper in the EKS module updates your kubeconfig and waits for API readiness so subsequent Helm deployments can succeed.
+- The platform stack creates a Kubernetes Ingress (class `alb`) that routes a single external ALB to two Services using paths:
+  - `/grafana` → `Service grafana:80` (Grafana configured with `grafana.ini` to serve from sub‑path)
+  - `/prometheus` → `Service prometheus-server:80` (Prometheus configured with `server.prefixURL`)
+
+ALB Controller
+- Ensure the AWS Load Balancer Controller is installed in the cluster so Ingress resources provision an ALB.
+- This repo includes `modules/system/alb-controller` you can consume from your own stack. It requires:
+  - Cluster name, region, VPC ID
+  - IRSA role for the controller service account
+
+## Storage & Alertmanager
+
+- For training/lab use, Alertmanager persistence is disabled and Alertmanager itself is turned off by default to avoid PVC scheduling issues on clusters without storage.
+- To enable Alertmanager with storage:
+  1. Install the EBS CSI driver (either EKS addon or the Helm module under `modules/system/ebs-csi`).
+  2. Create a default `gp3` StorageClass (provisioner: `ebs.csi.aws.com`).
+  3. Re‑enable Alertmanager in the Prometheus module and (optionally) enable persistence.
 
 ## Destroy
 
@@ -104,6 +132,12 @@ By default the Prometheus module uses `ClusterIP` Services. To expose via NLB, s
 
 ## Troubleshooting
 
-- Helm release timeouts: ensure the cluster API is reachable and your kubeconfig is updated. The Prometheus module defaults to `ClusterIP` and disables persistence by default to avoid PVC Pending issues.
+- Helm release timeouts: ensure the cluster API is reachable and your kubeconfig is updated. For Prometheus, persistence is disabled and Alertmanager is off by default to avoid PVC Pending on clusters without a default StorageClass.
 - Subnet math: subnets are derived as `/20` by default; adjust the `cidrsubnet` logic in the root `main.tf` if you need different sizes.
 - Resource address changes: if you rename resources inside modules, use `terraform state mv` to keep state aligned and avoid deletion ordering issues.
+
+## Recent Changes (How‑To recap)
+- Shared ALB Ingress added for Grafana and Prometheus. Use `terraform output monitoring_ingress_hostname` and open `http://<ALB-DNS>/grafana` or `/prometheus`.
+- Grafana and Prometheus use `ClusterIP`; Argo CD remains `LoadBalancer` by default.
+- Prometheus: `server.prefixURL` set, Alertmanager disabled; persistence forced off. Enable storage to re‑enable Alertmanager safely.
+- Worker node Name tags applied via launch template; override with EKS module var `node_name_tag`.

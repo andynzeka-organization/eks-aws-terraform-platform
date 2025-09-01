@@ -17,6 +17,12 @@ resource "helm_release" "grafana" {
       type        = var.service_type
       annotations = var.service_annotations
     }
+    "grafana.ini" = {
+      server = {
+        root_url            = "%(protocol)s://%(domain)s/grafana"
+        serve_from_sub_path = true
+      }
+    }
   })]
 
   depends_on = [kubernetes_namespace.grafana_namespace]
@@ -29,4 +35,3 @@ data "kubernetes_service" "grafana" {
   }
   depends_on = [helm_release.grafana]
 }
-
