@@ -9,3 +9,13 @@ output "grafana_admin_password" {
   sensitive   = true
 }
 
+output "post_install_summary" {
+  description = "Human-friendly summary for Grafana access"
+  value = <<EOT
+Grafana
+- URL: ${coalesce(module.grafana.service_hostname, "<pending>") != null ? "http://" : ""}${coalesce(module.grafana.service_hostname, "<pending>")}
+- Username: admin
+- Password (sensitive output): terraform output grafana_admin_password
+- If no external address: kubectl -n grafana port-forward svc/grafana 3000:80
+EOT
+}
