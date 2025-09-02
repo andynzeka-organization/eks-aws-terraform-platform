@@ -17,19 +17,19 @@ locals {
   cluster_name = coalesce(var.cluster_name, try(data.terraform_remote_state.infra.outputs.eks_cluster_name, null))
 }
 
-data "aws_eks_cluster" "this" { name = local.cluster_name }
-data "aws_eks_cluster_auth" "this" { name = local.cluster_name }
+data "aws_eks_cluster" "demo-eks-cluster" { name = local.cluster_name }
+data "aws_eks_cluster_auth" "demo-eks-cluster" { name = local.cluster_name }
 
 provider "kubernetes" {
-  host                   = data.aws_eks_cluster.this.endpoint
-  cluster_ca_certificate = base64decode(data.aws_eks_cluster.this.certificate_authority[0].data)
-  token                  = data.aws_eks_cluster_auth.this.token
+  host                   = data.aws_eks_cluster.demo-eks-cluster.endpoint
+  cluster_ca_certificate = base64decode(data.aws_eks_cluster.demo-eks-cluster.certificate_authority[0].data)
+  token                  = data.aws_eks_cluster_auth.demo-eks-cluster.token
 }
 
 provider "helm" {
   kubernetes = {
-    host                   = data.aws_eks_cluster.this.endpoint
-    cluster_ca_certificate = base64decode(data.aws_eks_cluster.this.certificate_authority[0].data)
-    token                  = data.aws_eks_cluster_auth.this.token
+    host                   = data.aws_eks_cluster.demo-eks-cluster.endpoint
+    cluster_ca_certificate = base64decode(data.aws_eks_cluster.demo-eks-cluster.certificate_authority[0].data)
+    token                  = data.aws_eks_cluster_auth.demo-eks-cluster.token
   }
 }

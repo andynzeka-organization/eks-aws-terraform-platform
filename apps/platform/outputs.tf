@@ -60,3 +60,13 @@ output "prometheus_ingress_url" {
   description = "Prometheus URL via shared Ingress"
   value       = try("http://${kubernetes_ingress_v1.monitoring.status[0].load_balancer[0].ingress[0].hostname}/prometheus", null)
 }
+
+output "argo_cd_helm_metadata" {
+  description = "Metadata Block outlining status of the deployed release."
+  value       = helm_release.argocd.metadata
+}
+
+output "kube_prometheus_stack_helm_metadata" {
+  description = "Metadata Block outlining status of the deployed kube-prometheus-stack release."
+  value       = helm_release.kube_prometheus_stack.metadata
+}

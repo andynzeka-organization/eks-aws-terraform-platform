@@ -56,6 +56,7 @@ resource "aws_subnet" "private" {
     Tier = "private"
     "kubernetes.io/role/internal-elb" = "1"
   }, local.cluster_discovery_tag)
+  
   depends_on = [ aws_vpc.demo-vpc ]
 }
 

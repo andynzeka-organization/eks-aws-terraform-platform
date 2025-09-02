@@ -114,6 +114,7 @@ resource "aws_eks_cluster" "demo-eks-cluster" {
     subnet_ids              = var.subnet_ids
     endpoint_private_access = var.endpoint_private_access
     endpoint_public_access  = var.endpoint_public_access
+    # vpc_id                  = var.vpc_id
   }
 
   enabled_cluster_log_types = var.cluster_log_types
@@ -140,34 +141,8 @@ resource "aws_iam_openid_connect_provider" "openid" {
   ]
 }
 
-// Launch template used to tag EC2 instances created by the managed node group
-# resource "aws_launch_template" "eks_node" {
-#   name_prefix = "${var.eks_cluster_name}-ng-"
-#   image_id    = data.aws_ami.eks_worker.id
-#   instance_type = var.instance_types[0]
-#   block_device_mappings {
-#     device_name = "/dev/xvda"
-#     ebs {
-#       volume_size           = var.disk_size
-#       volume_type           = "gp3"
-#       delete_on_termination = true
-#     }
-#   }
-#   tag_specifications {
-#     resource_type = "instance"
-#     tags = merge(local.base_tags, {
-#       Name = local.node_name_tag
-#     })
-#   }
-#   tag_specifications {
-#     resource_type = "volume"
-#     tags = local.base_tags
-#   }
-#   tags = merge(local.base_tags, { Component = "eks-node-lt" })
-# }
-
 // Launch template to apply Name tag to instances in the node group
-resource "aws_launch_template" "worker" {
+resource "aws_launch_template" "node" {
   name_prefix = "${var.eks_cluster_name}-ng-"
 
   tag_specifications {
@@ -186,7 +161,7 @@ resource "aws_launch_template" "worker" {
 }
 
 // Node Group
-resource "aws_eks_node_group" "worker-node" {
+resource "aws_eks_node_group" "node" {
   cluster_name    = aws_eks_cluster.demo-eks-cluster.name
   node_group_name = "${var.eks_cluster_name}-ng"
   node_role_arn   = aws_iam_role.node.arn
@@ -197,24 +172,21 @@ resource "aws_eks_node_group" "worker-node" {
     min_size     = var.min_size
     max_size     = var.max_size
   }
-
   update_config {
     max_unavailable = var.max_unavailable
   }
-
   force_update_version = var.force_node_group_rollout
 
   capacity_type  = var.capacity_type
   instance_types = var.instance_types
-
   launch_template {
-    id      = aws_launch_template.worker.id
+    id      = aws_launch_template.node.id
     version = "$Latest"
   }
-
   tags = merge(local.base_tags, { Component = "eks-node-group" })
-
-  depends_on = [aws_eks_cluster.demo-eks-cluster]
+  depends_on = [
+    aws_eks_cluster.demo-eks-cluster,
+    aws_iam_role_policy_attachment.node_AmazonEKSWorkerNodePolicy,]
 }
 
 // Helper to build IRSA trust policy

@@ -19,7 +19,7 @@ output "cluster_oidc_provider_arn" {
 }
 
 output "node_group_name" {
-  value       = aws_eks_node_group.worker-node.node_group_name
+  value       = aws_eks_node_group.node.node_group_name
   description = "Default node group name"
 }
 

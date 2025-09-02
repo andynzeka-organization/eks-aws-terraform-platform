@@ -1,6 +1,6 @@
 module "vpc" {
   source               = "./modules/vpc"
-  name                 = var.project_name
+  name               = var.project_name
   cidr_block           = var.vpc_cidr
   azs                  = local.azs_final
   public_subnet_cidrs  = local.public_subnet_cidrs_final
@@ -10,12 +10,13 @@ module "vpc" {
   cluster_name_for_tag = var.eks_cluster_name
 }
 
+
 module "eks" {
   source             = "./modules/eks"
   eks_cluster_name   = var.eks_cluster_name
-   region             = var.aws_region
+  region             = var.aws_region
+  subnet_ids         = module.vpc.private_subnet_ids
   # vpc_id             = module.vpc.vpc_id
-  subnet_ids = module.vpc.private_subnet_ids
   tags               = var.tags
   # enable_argocd_irsa = var.enable_argocd_irsa
   # cluster_version    = var.cluster_version
