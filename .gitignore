@@ -8,6 +8,9 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
+s3Create-backend/*.tfstate
+s3Create-backend/.terraform/
+s3Create-backend/*.tfstate.*
 
 # Variable files that may contain secrets
 terraform.tfvars
