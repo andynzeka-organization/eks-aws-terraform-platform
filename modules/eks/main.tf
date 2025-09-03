@@ -114,7 +114,7 @@ resource "aws_eks_cluster" "demo-eks-cluster" {
     subnet_ids              = var.subnet_ids
     endpoint_private_access = var.endpoint_private_access
     endpoint_public_access  = var.endpoint_public_access
-    # vpc_id                  = var.vpc_id
+    security_group_ids = var.eks_additional_sg_ids
   }
 
   enabled_cluster_log_types = var.cluster_log_types
@@ -143,22 +143,52 @@ resource "aws_iam_openid_connect_provider" "openid" {
 
 // Launch template to apply Name tag to instances in the node group
 resource "aws_launch_template" "node" {
-  name_prefix = "${var.eks_cluster_name}-ng-"
+  name_prefix = "${var.eks_cluster_name}-ng"
+  vpc_security_group_ids = var.eks_additional_sg_ids
+  key_name      = var.ssh_key_name
+  
+  block_device_mappings {
+    device_name = "/dev/xvda"
 
+    ebs {
+      volume_size           = var.disk_size           # e.g., 20
+      volume_type           = "gp3"
+      delete_on_termination = true
+    }
+  }
   tag_specifications {
     resource_type = "instance"
     tags = merge(local.base_tags, {
       Name = local.node_name_tag
     })
   }
-
   tag_specifications {
     resource_type = "volume"
     tags          = local.base_tags
   }
-
   tags = merge(local.base_tags, { Component = "eks-node-lt" })
 }
+
+# 1. Generate a new SSH key pair locally
+resource "tls_private_key" "eks_key" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+# 2. Upload the public key to AWS as a named key pair
+resource "aws_key_pair" "eks_key_pair" {
+  key_name   = var.ssh_key_name
+  public_key = tls_private_key.eks_key.public_key_openssh
+}
+
+# 3. Save the private key to your local machine (be careful with permissions)
+resource "local_file" "private_key_pem" {
+  content              = tls_private_key.eks_key.private_key_pem
+  filename             = "${path.module}/keys/${var.ssh_key_name}.pem"
+  file_permission      = "0600"
+  directory_permission = "0700"
+}
+
 
 // Node Group
 resource "aws_eks_node_group" "node" {
@@ -166,7 +196,6 @@ resource "aws_eks_node_group" "node" {
   node_group_name = "${var.eks_cluster_name}-ng"
   node_role_arn   = aws_iam_role.node.arn
   subnet_ids      = var.subnet_ids
-
   scaling_config {
     desired_size = var.desired_size
     min_size     = var.min_size
@@ -176,7 +205,6 @@ resource "aws_eks_node_group" "node" {
     max_unavailable = var.max_unavailable
   }
   force_update_version = var.force_node_group_rollout
-
   capacity_type  = var.capacity_type
   instance_types = var.instance_types
   launch_template {

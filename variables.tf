@@ -31,7 +31,7 @@ variable "private_subnet_cidrs" {
 variable "enable_nat_per_az" {
   description = "Create NAT gateway per AZ"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "eks_cluster_name" {
@@ -74,6 +74,12 @@ variable "helm_namespace_monitoring" {
   description = "Namespace for Monitoring stack"
   type        = string
   default     = "monitoring"
+}
+
+variable "disk_size" {
+  description = "Disk size for worker nodes in GiB"
+  type        = number
+  default     = 30
 }
 
 # variable "eks_cluster_name" {

@@ -17,7 +17,7 @@ variable "subnet_ids" {
 variable "desired_size" {
   description = "Desired number of nodes in the node group"
   type        = number
-  default     = 2
+  default     = 1
 }
 
 variable "min_size" {
@@ -29,7 +29,7 @@ variable "min_size" {
 variable "max_size" {
   description = "Maximum number of nodes in the node group"
   type        = number
-  default     = 4
+  default     = 3
 }
 
 variable "max_unavailable" {
@@ -59,7 +59,7 @@ variable "capacity_type" {
 variable "disk_size" {
   description = "Disk size for worker nodes in GiB"
   type        = number
-  default     = 30
+#  default     = 30
 }
 
 variable "endpoint_private_access" {
@@ -181,7 +181,14 @@ variable "region" {
   type        = string
 }
 
-# variable "vpc_id" {
-#   description = "VPC ID for the EKS cluster"
-#   type        = string
-# }
+variable "eks_additional_sg_ids" {
+  description = "Additional security group IDs to attach to the EKS Node Group and Cluster ENIs"
+  type        = list(string)
+  default     = []
+}
+
+variable "ssh_key_name" {
+  description = "Name of the SSH key pair to create"
+  type        = string
+  default     = "eks-node-key"
+}

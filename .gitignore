@@ -11,7 +11,8 @@ override.tf.json
 s3Create-backend/*.tfstate
 s3Create-backend/.terraform/
 s3Create-backend/*.tfstate.*
-
+modules/eks/keys/*.pem
+modules/eks/keys/*.key
 # Variable files that may contain secrets
 terraform.tfvars
 *.auto.tfvars

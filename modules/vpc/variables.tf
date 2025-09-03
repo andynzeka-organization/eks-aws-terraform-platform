@@ -26,7 +26,7 @@ variable "private_subnet_cidrs" {
 variable "enable_nat_per_az" {
   description = "Create one NAT Gateway per AZ (true) or a single NAT (false)"
   type        = bool
-  default     = true
+  # default     = false
 }
 
 variable "tags" {
