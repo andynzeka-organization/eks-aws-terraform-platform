@@ -42,3 +42,9 @@ output "irsa_argocd_role_arn" {
   value       = try(aws_iam_role.argocd[0].arn, null)
   description = "IRSA role ARN for ArgoCD (if created)"
 }
+
+# Expose the Cluster Security Group ID for SG-to-SG rules
+output "cluster_security_group_id" {
+  value       = aws_eks_cluster.demo-eks-cluster.vpc_config[0].cluster_security_group_id
+  description = "EKS Cluster Security Group ID"
+}

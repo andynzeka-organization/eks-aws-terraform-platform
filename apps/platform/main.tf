@@ -25,3 +25,4 @@ module "prometheus" {
   server_service_type         = "ClusterIP"
   server_service_annotations  = {}
 }
+

@@ -26,6 +26,6 @@ output "private_route_table_ids" {
   value = { for k, v in aws_route_table.private : k => v.id }
 }
 
-output "nat_gateway_ids" {
-  value = [for k, v in aws_nat_gateway.nat : v.id]
-}
+# output "nat_gateway_ids" {
+#   value = [for k, v in aws_nat_gateway.nat : v.id]
+# }

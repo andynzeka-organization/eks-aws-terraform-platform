@@ -48,3 +48,12 @@ kubeconfig*
 # Python cache (if any tooling/scripts added)
 __pycache__/
 *.pyc
+
+./ingress/.terraform
+./ingress/.terraform.lock.hcl
+./ingress/terraform.tfstate
+./ingress/terraform.tfstate.backup
+./ingress/terraform.tfvars
+./ingress/terraform.tfvars.json
+./eks-cluster/.terraform
+./eks-cluster/.terraform.lock.hcl           

@@ -60,28 +60,28 @@ resource "aws_subnet" "private" {
   depends_on = [ aws_vpc.demo-vpc ]
 }
 
-resource "aws_eip" "nat" {
-  count = var.enable_nat_per_az ? local.az_count : 1
+# resource "aws_eip" "nat" {
+#   count = var.enable_nat_per_az ? local.az_count : 1
 
-  domain = "vpc"
+#   domain = "vpc"
 
-  tags = merge(var.tags, {
-    Name = "${var.name}-nat-eip-${count.index}"
-  })
-  depends_on = [ aws_vpc.demo-vpc, aws_internet_gateway.igw ]
-}
+#   tags = merge(var.tags, {
+#     Name = "${var.name}-nat-eip-${count.index}"
+#   })
+#   depends_on = [ aws_vpc.demo-vpc, aws_internet_gateway.igw ]
+# }
 
-resource "aws_nat_gateway" "nat" {
-  for_each = var.enable_nat_per_az ? { for k, s in aws_subnet.public : k => s } : { "0" = values(aws_subnet.public)[0] }
+# resource "aws_nat_gateway" "nat" {
+#   for_each = var.enable_nat_per_az ? { for k, s in aws_subnet.public : k => s } : { "0" = values(aws_subnet.public)[0] }
 
-  allocation_id = var.enable_nat_per_az ? aws_eip.nat[tonumber(each.key)].id : aws_eip.nat[0].id
-  subnet_id     = each.value.id
+#   allocation_id = var.enable_nat_per_az ? aws_eip.nat[tonumber(each.key)].id : aws_eip.nat[0].id
+#   subnet_id     = each.value.id
 
-  tags = merge(var.tags, {
-    Name = "${var.name}-nat-${each.key}"
-  })
-  depends_on = [ aws_eip.nat, aws_internet_gateway.igw ]
-}
+#   tags = merge(var.tags, {
+#     Name = "${var.name}-nat-${each.key}"
+#   })
+#   depends_on = [ aws_eip.nat, aws_internet_gateway.igw ]
+# }
 
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.demo-vpc.id
@@ -106,18 +106,25 @@ resource "aws_route_table_association" "public" {
 
 resource "aws_route_table" "private" {
   for_each = aws_subnet.private
-
   vpc_id = aws_vpc.demo-vpc.id
+  # Remove NAT route or replace it
+  # route {
+  #   cidr_block     = "0.0.0.0/0"
+  #   nat_gateway_id = var.enable_nat_per_az ? aws_nat_gateway.nat[each.key].id : aws_nat_gateway.nat["0"].id
+  # }
 
+  # Add igw route to replace NAT for testing purposes
   route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = var.enable_nat_per_az ? aws_nat_gateway.nat[each.key].id : aws_nat_gateway.nat["0"].id
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.igw.id
   }
 
   tags = merge(var.tags, {
     Name = "${var.name}-private-rt-${each.key}"
   })
-  depends_on = [ aws_nat_gateway.nat, aws_vpc.demo-vpc ]
+  depends_on = [ 
+    aws_vpc.demo-vpc, 
+   ] #aws_nat_gateway.nat ]
 }
 
 resource "aws_route_table_association" "private" {

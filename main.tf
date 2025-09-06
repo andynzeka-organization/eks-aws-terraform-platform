@@ -15,14 +15,17 @@ module "eks" {
   source           = "./modules/eks"
   eks_cluster_name = var.eks_cluster_name
   region           = var.aws_region
+  #subnet_ids       = module.vpc.private_subnet_ids
   subnet_ids       = module.vpc.public_subnet_ids
-  disk_size             = var.disk_size
-  tags = var.tags
+  disk_size        = var.disk_size
+  tags             = var.tags
   # enable_argocd_irsa = var.enable_argocd_irsa
   # cluster_version    = var.cluster_version
   eks_additional_sg_ids = [aws_security_group.eks_custom.id]
-  
+
 }
+
+
 
 data "aws_availability_zones" "available" {
   state = "available"

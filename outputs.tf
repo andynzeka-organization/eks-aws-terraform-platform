@@ -12,6 +12,11 @@ output "cluster_endpoint" {
   value       = module.eks.cluster_endpoint
 }
 
+output "cluster_oidc_provider_arn" {
+  description = "OIDC provider ARN for IRSA"
+  value       = module.eks.cluster_oidc_provider_arn
+}
+
 
 # output "argocd_server_hostname" {
 #   description = "ArgoCD Service external hostname or IP"

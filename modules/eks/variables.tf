@@ -17,7 +17,7 @@ variable "subnet_ids" {
 variable "desired_size" {
   description = "Desired number of nodes in the node group"
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "min_size" {
@@ -48,6 +48,7 @@ variable "instance_types" {
   description = "Instance types for EKS node groups"
   type        = list(string)
   default     = ["t3.medium"]
+  # default     = ["t4g.small"] 
 }
 
 variable "capacity_type" {

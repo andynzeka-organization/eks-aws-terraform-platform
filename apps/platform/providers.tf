@@ -33,3 +33,7 @@ provider "helm" {
     token                  = data.aws_eks_cluster_auth.demo-eks-cluster.token
   }
 }
+
+# provider "aws" {
+#   region = var.aws_region
+# }
