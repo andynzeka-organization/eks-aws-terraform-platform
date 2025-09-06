@@ -89,7 +89,7 @@ resource "kubernetes_service_account" "alb_sa" {
 # helm repo add eks https://aws.github.io/eks-charts
 # helm repo update
 
-# helm upgrade -i aws-load-balancer-controller eks/aws-load-balancer-controller  --set clusterName=demo-eks-cluster --set serviceAccount.create=false --set serviceAccount.name=aws-load-balancer-controller --set region=us-east-1 --set vpcId=vpc-04fd9fc1b14c2e0cd --namespace kube-system 
+# helm upgrade -i aws-load-balancer-controller eks/aws-load-balancer-controller --set vpcId=vpc-07b46a112f1f5aaa0  --set clusterName=demo-eks-cluster --set serviceAccount.create=false --set serviceAccount.name=aws-load-balancer-controller --set region=us-east-1 --namespace kube-system 
 
 # kubectl get deployment -n  kube-system aws-load-balancer-controller
 # kubectl get pod -n kube-system
