@@ -9,3 +9,15 @@ variable "cluster_name" {
   type        = string
   default     = "demo-eks-cluster"
 }
+
+variable "oidc_provider_arn_override" {
+  description = "Optional override for the EKS cluster's OIDC provider ARN (use when remote state is unavailable)"
+  type        = string
+  default     = null
+}
+
+variable "vpc_id_override" {
+  description = "Optional override for the VPC ID to use (bypass remote state)"
+  type        = string
+  default     = null
+}

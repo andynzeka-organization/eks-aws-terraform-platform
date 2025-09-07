@@ -1,6 +1,6 @@
 locals {
   az_count = length(var.azs)
-  cluster_discovery_tag = var.cluster_name_for_tag != null ? { "kubernetes.io/cluster/${var.cluster_name_for_tag}" = "shared" } : {}
+  cluster_discovery_tag = var.cluster_name_for_tag != null ? { "kubernetes.io/cluster/${var.cluster_name_for_tag}" = var.cluster_discovery_tag_value } : {}
 }
 
 resource "aws_vpc" "demo-vpc" {

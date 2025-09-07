@@ -40,3 +40,9 @@ variable "cluster_name_for_tag" {
   type        = string
   default     = null
 }
+
+variable "cluster_discovery_tag_value" {
+  description = "Value for kubernetes.io/cluster/<name> tag. Use 'shared' (recommended) or 'owned'."
+  type        = string
+  default     = "shared"
+}

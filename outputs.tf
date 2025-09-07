@@ -17,6 +17,16 @@ output "cluster_oidc_provider_arn" {
   value       = module.eks.cluster_oidc_provider_arn
 }
 
+output "public_subnet_ids" {
+  description = "Public subnet IDs used by the cluster (tagged for ELB)"
+  value       = module.vpc.public_subnet_ids
+}
+
+output "private_subnet_ids" {
+  description = "Private subnet IDs used by the cluster"
+  value       = module.vpc.private_subnet_ids
+}
+
 
 # output "argocd_server_hostname" {
 #   description = "ArgoCD Service external hostname or IP"
