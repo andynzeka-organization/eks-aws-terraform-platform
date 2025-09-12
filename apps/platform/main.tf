@@ -1,28 +1,16 @@
 module "argocd" {
-  source            = "../../modules/argocd"
-  namespace         = "argocd"
-  create_namespace  = true
-  service_type      = "LoadBalancer"
-  service_annotations = {
-    "service.beta.kubernetes.io/aws-load-balancer-type"             = "nlb"
-    "service.beta.kubernetes.io/aws-load-balancer-scheme"           = "internet-facing"
-    "service.beta.kubernetes.io/aws-load-balancer-nlb-target-type"  = "ip"
-  }
-}
-
-module "grafana" {
-  source            = "../../modules/grafana"
-  namespace         = "monitoring"
-  create_namespace  = false
-  service_type      = "ClusterIP"
+  source           = "../../modules/argocd"
+  namespace        = "argocd"
+  create_namespace = true
+  service_type     = "ClusterIP"
   service_annotations = {}
 }
 
-module "prometheus" {
-  source                      = "../../modules/prometheus"
-  namespace                   = "monitoring"
-  create_namespace            = true
-  server_service_type         = "ClusterIP"
-  server_service_annotations  = {}
+module "grafana" {
+  source              = "../../modules/grafana"
+  namespace           = "monitoring"
+  create_namespace    = true
+  service_type        = "ClusterIP"
+  service_annotations = {}
+  # depends_on          = [null_resource.alb_webhook_ready]
 }
-

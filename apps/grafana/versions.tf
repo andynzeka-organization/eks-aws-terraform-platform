@@ -9,8 +9,7 @@ terraform {
     bucket         = "zenobi-terraform-bucket"
     key            = "apps/grafana/terraform.tfstate"
     region         = "us-east-1"
-    dynamodb_table = "zenobi-terraform-eks-state-lock"
+    # dynamodb_table = "zenobi-terraform-eks-state-lock" # temporarily disabled state locking
     encrypt        = true
   }
 }
-

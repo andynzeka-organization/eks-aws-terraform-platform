@@ -1,6 +1,7 @@
 output "service_hostname" {
   description = "ArgoCD Service external hostname or IP"
-  value       = coalesce(try(data.kubernetes_service.argocd_server.status[0].load_balancer[0].ingress[0].hostname, null), try(data.kubernetes_service.argocd_server.status[0].load_balancer[0].ingress[0].ip, null))
+  # May be null when Service is ClusterIP (expected when exposed via shared ALB)
+  value       = try(data.kubernetes_service.argocd_server.status[0].load_balancer[0].ingress[0].hostname, null)
 }
 
 output "admin_password" {

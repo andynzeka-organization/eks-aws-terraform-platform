@@ -29,7 +29,7 @@ variable "min_size" {
 variable "max_size" {
   description = "Maximum number of nodes in the node group"
   type        = number
-  default     = 3
+  default     = 4
 }
 
 variable "max_unavailable" {
@@ -47,7 +47,7 @@ variable "force_node_group_rollout" {
 variable "instance_types" {
   description = "Instance types for EKS node groups"
   type        = list(string)
-  default     = ["t3.medium"]
+  default     = ["t3.large"]
   # default     = ["t4g.small"] 
 }
 

@@ -7,11 +7,25 @@ resource "helm_release" "argocd" {
   name       = "argo-cd"
   repository = "https://argoproj.github.io/argo-helm"
   chart      = "argo-cd"
+  version    = "5.51.6" # match with your values
   namespace  = var.namespace
-  wait       = true
-  timeout    = 600
+  wait              = true
+  timeout           = 300
+  dependency_update = true
+  atomic            = true
+  cleanup_on_fail   = true
 
   values = [yamlencode({
+    configs = {
+      params = {
+        "server.insecure" = true
+        "server.basehref" = "/argocd"
+        "server.rootpath" = "/argocd"
+      }
+    }
+    crds = {
+      install = true
+    }
     server = {
       service = {
         type        = var.service_type
@@ -24,7 +38,7 @@ resource "helm_release" "argocd" {
   })]
 
   depends_on = [
-    kubernetes_namespace.argocd_namespace
+    kubernetes_namespace.argocd_namespace, 
   ]
 }
 

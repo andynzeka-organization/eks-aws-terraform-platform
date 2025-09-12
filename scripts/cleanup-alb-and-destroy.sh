@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Destroys all ALB-related Kubernetes resources safely, then destroys Terraform stacks
+# Destroys app Helm releases and ALB-related Kubernetes resources safely,
+# then destroys Terraform stacks in the correct order.
 # WARNING: This is destructive. It will:
+#  - Destroy platform apps Terraform (Helm releases) first
 #  - Delete ALL Ingress resources in the cluster
 #  - Wait for all TargetGroupBindings to be removed (avoids orphan ALBs)
 #  - Uninstall the AWS Load Balancer Controller Helm release
@@ -15,14 +17,18 @@ set -euo pipefail
 #  - TIMEOUT (seconds, default: 1200)
 #  - SLEEP (seconds between checks, default: 10)
 #  - FORCE (true|false, default: false)  # set true to skip interactive confirmation
+#  - FAST_ELB_CLEAN (true|false, default: true)  # if true, skip long waits and force-delete ALBs/TGs in VPC
 
 RELEASE_NAME=${RELEASE_NAME:-aws-load-balancer-controller}
 RELEASE_NAMESPACE=${RELEASE_NAMESPACE:-kube-system}
 TIMEOUT=${TIMEOUT:-1200}
 SLEEP=${SLEEP:-10}
 FORCE=${FORCE:-false}
+FAST_ELB_CLEAN=${FAST_ELB_CLEAN:-true}
 # Extra args for kubectl to avoid long hangs
 KUBECTL_ARGS=(--request-timeout=10s)
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT=$(cd "${SCRIPT_DIR}/.." && pwd)
 
 confirm() {
   if [[ "${FORCE}" == "true" ]]; then
@@ -129,26 +135,75 @@ wait_for_elbv2_cleanup() {
   done
 }
 
+delete_elbv2_in_vpc() {
+  local vpc_id="$1"
+  echo "[destroy] FAST_ELB_CLEAN=true -> deleting ALBs/TargetGroups in VPC ${vpc_id}..."
+  # Delete LBs first
+  local lbs
+  lbs=$(aws elbv2 describe-load-balancers --query "LoadBalancers[?VpcId=='${vpc_id}'].[LoadBalancerArn,LoadBalancerName]" --output json 2>/dev/null || echo '[]')
+  echo "$lbs" | jq -r '.[] | @tsv' 2>/dev/null | while IFS=$'\t' read -r arn name; do
+    [[ -z "$arn" ]] && continue
+    echo "  - deleting LB: ${name:-$arn}"
+    aws elbv2 delete-load-balancer --load-balancer-arn "$arn" >/dev/null 2>&1 || true
+  done
+  # Then delete Target Groups
+  local tgs
+  tgs=$(aws elbv2 describe-target-groups --query "TargetGroups[?VpcId=='${vpc_id}'].[TargetGroupArn,TargetGroupName]" --output json 2>/dev/null || echo '[]')
+  echo "$tgs" | jq -r '.[] | @tsv' 2>/dev/null | while IFS=$'\t' read -r arn name; do
+    [[ -z "$arn" ]] && continue
+    echo "  - deleting TG: ${name:-$arn}"
+    aws elbv2 delete-target-group --target-group-arn "$arn" >/dev/null 2>&1 || true
+  done
+}
+
+# Destroy platform apps (Helm) via Terraform so no Services/Ingress remain
+destroy_platform_apps() {
+  if [[ -d "${REPO_ROOT}/apps/platform" ]]; then
+    echo "[destroy] Destroying platform apps (apps/platform)..."
+    pushd "${REPO_ROOT}/apps/platform" >/dev/null
+    tf_cmd init -upgrade || true
+    tf_cmd destroy -auto-approve || true
+    popd >/dev/null
+  fi
+}
+
 main() {
   confirm
 
   # Ensure we run from repo root (script resides in scripts/)
-  SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-  REPO_ROOT=$(cd "${SCRIPT_DIR}/.." && pwd)
   cd "${REPO_ROOT}"
+
+  # Proactively destroy platform apps to remove Services/Ingresses
+  destroy_platform_apps
 
   echo "[destroy] Deleting all Ingress resources cluster-wide..."
   # Delete all ingresses without waiting to avoid blocking on finalizers
   kubectl "${KUBECTL_ARGS[@]}" delete ingress --all --all-namespaces --wait=false 2>/dev/null || true
 
-  wait_for_tgbs
+  echo "[destroy] Stripping ingress finalizers to prevent hanging deletions..."
+  # Patch all remaining ingresses to remove finalizers (idempotent)
+  while IFS= read -r ing; do
+    [ -n "$ing" ] || continue
+    echo "  - patching $ing"
+    kubectl "${KUBECTL_ARGS[@]}" patch "$ing" --type=json -p='[{"op":"remove","path":"/metadata/finalizers"}]' 2>/dev/null || true
+  done < <(kubectl "${KUBECTL_ARGS[@]}" get ingress -A -o name 2>/dev/null || true)
 
-  # Wait for AWS ELBv2 resources (ALBs/Target Groups) to disappear from the VPC
-  VPC_ID_RESOLVED=$(resolve_vpc_id || true)
-  if [[ -n "${VPC_ID_RESOLVED}" ]]; then
-    wait_for_elbv2_cleanup "${VPC_ID_RESOLVED}"
+  if [[ "${FAST_ELB_CLEAN}" == "true" ]]; then
+    VPC_ID_RESOLVED=$(resolve_vpc_id || true)
+    if [[ -n "${VPC_ID_RESOLVED}" ]]; then
+      delete_elbv2_in_vpc "${VPC_ID_RESOLVED}"
+    else
+      echo "[destroy] FAST_ELB_CLEAN: could not resolve VPC ID; skipping forced ALB/TG deletion." >&2
+    fi
   else
-    echo "[destroy] Skipping ELBv2 wait: could not resolve VPC ID (set VPC_ID env to force)." >&2
+    wait_for_tgbs
+    # Wait for AWS ELBv2 resources (ALBs/Target Groups) to disappear from the VPC
+    VPC_ID_RESOLVED=$(resolve_vpc_id || true)
+    if [[ -n "${VPC_ID_RESOLVED}" ]]; then
+      wait_for_elbv2_cleanup "${VPC_ID_RESOLVED}"
+    else
+      echo "[destroy] Skipping ELBv2 wait: could not resolve VPC ID (set VPC_ID env to force)." >&2
+    fi
   fi
 
   echo "[destroy] Uninstalling Helm release ${RELEASE_NAME} in ${RELEASE_NAMESPACE}..."
@@ -169,9 +224,19 @@ main() {
     (cd ingress && tf_cmd destroy -auto-approve) || true
   fi
 
-  # Terraform destroy in repo root
+  # Terraform destroy in repo root (retry with forced VPC cleanup if needed)
   echo "[destroy] Terraform destroy in repo root ..."
-  tf_cmd destroy -auto-approve || true
+  if ! tf_cmd destroy -auto-approve; then
+    echo "[destroy] Root destroy failed. Attempting forced VPC dependency cleanup..." >&2
+    VPC_ID_RESOLVED=$(resolve_vpc_id || true)
+    if [[ -n "${VPC_ID_RESOLVED}" && -x "${REPO_ROOT}/scripts/force-delete-vpc.sh" ]]; then
+      "${REPO_ROOT}/scripts/force-delete-vpc.sh" "${VPC_ID_RESOLVED}" || true
+      echo "[destroy] Retrying root Terraform destroy after VPC cleanup..."
+      tf_cmd destroy -auto-approve || true
+    else
+      echo "[destroy] Could not resolve VPC ID or force-delete script not available." >&2
+    fi
+  fi
 
   echo "[destroy] Complete."
 }

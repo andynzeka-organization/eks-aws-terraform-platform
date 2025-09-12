@@ -1,13 +1,25 @@
-# Define a null_resource to run the update-kubeconfig command
+# # Define a null_resource to run the update-kubeconfig command
+# resource "null_resource" "update_kubeconfig" {
+#   depends_on = [aws_eks_cluster.demo-eks-cluster]
+#   provisioner "local-exec" {
+#     command = "aws eks update-kubeconfig --name ${var.eks_cluster_name} --region ${var.region}"
+#   }
+
+#   # Ensure this resource runs only if it has changed
+#   triggers = {
+#     cluster_name = var.eks_cluster_name
+#   }
+# }
+
 resource "null_resource" "update_kubeconfig" {
   depends_on = [aws_eks_cluster.demo-eks-cluster]
+
   provisioner "local-exec" {
     command = "aws eks update-kubeconfig --name ${var.eks_cluster_name} --region ${var.region}"
   }
 
-  # Ensure this resource runs only if it has changed
   triggers = {
-    cluster_name = var.eks_cluster_name
+    always_run = timestamp()
   }
 }
 
@@ -35,27 +47,4 @@ resource "null_resource" "wait_for_k8s_api" {
     interpreter = ["bash", "-c"]
   }
 }
-
-# resource "null_resource" "clean_up_argocd_resources" {
-#   triggers = {
-#     eks_cluster_name = var.eks_cluster_name
-#     region           = var.region
-#   }
-
-#   provisioner "local-exec" {
-#     when        = destroy
-#     interpreter = ["bash", "-c"]
-#     command     = <<-EOT
-#       kubeconfig=/tmp/tf.clean_up_argocd.kubeconfig.yaml
-#       aws eks update-kubeconfig --name ${self.triggers.eks_cluster_name} --region ${self.triggers.region} --kubeconfig $kubeconfig
-#       rm -f /tmp/tf.clean_up_argocd_resources.err.log
-#       kubectl --kubeconfig $kubeconfig get Application -A -o name | xargs -I {} kubectl --kubeconfig $kubeconfig -n argocd patch -p '{"metadata":{"finalizers":null}}' --type=merge {} 2> /tmp/tf.clean_up_argocd_resources.err.log || true
-#       rm -f $kubeconfig
-#     EOT
-#   }
-# }
-
-
-
-
 

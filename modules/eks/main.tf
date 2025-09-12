@@ -329,3 +329,5 @@ resource "aws_iam_role_policy_attachment" "argocd_attach_existing" {
   role       = aws_iam_role.argocd[0].name
   policy_arn = var.argocd_policy_arn
 }
+
+

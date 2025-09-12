@@ -27,6 +27,17 @@ output "private_subnet_ids" {
   value       = module.vpc.private_subnet_ids
 }
 
+# Helpful for verifying ALB webhook connectivity paths
+output "cluster_security_group_id" {
+  description = "EKS Cluster Security Group ID (source for API server)"
+  value       = module.eks.cluster_security_group_id
+}
+
+output "node_security_group_id" {
+  description = "Node/Worker Security Group ID (destination for webhook on 9443)"
+  value       = aws_security_group.eks_custom.id
+}
+
 
 # output "argocd_server_hostname" {
 #   description = "ArgoCD Service external hostname or IP"

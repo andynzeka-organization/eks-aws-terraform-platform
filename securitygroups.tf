@@ -57,7 +57,7 @@ resource "aws_security_group" "eks_custom" {
   tags = merge(
     var.tags,
     {
-      Name = "${var.project_name}-eks-custom"   # 👈 This makes the name visible in the AWS console
+      Name = "${var.project_name}-eks-custom" # 👈 This makes the name visible in the AWS console
     }
   )
 }
@@ -83,3 +83,26 @@ resource "aws_security_group_rule" "allow_webhook_from_cluster_sg" {
   source_security_group_id = module.eks.cluster_security_group_id
   description              = "Allow EKS control plane (cluster SG) to reach webhook pods (9443)"
 }
+
+# Also allow from the additional SG attached to both control plane ENIs and nodes.
+# This covers environments where traffic originates using the additional SG instead of the cluster SG.
+resource "aws_security_group_rule" "allow_webhook_from_additional_sg" {
+  type                     = "ingress"
+  from_port                = 9443
+  to_port                  = 9443
+  protocol                 = "tcp"
+ security_group_id        = aws_security_group.eks_custom.id
+  source_security_group_id = aws_security_group.eks_custom.id
+  description              = "Allow control plane/node additional SG to reach webhook pods (9443)"
+}
+
+# # From EKS NodeGroup SG to Pod SG
+# resource "aws_security_group_rule" "allow_webhook_from_node_sg" {
+#   type                     = "ingress"
+#   from_port                = 9443
+#   to_port                  = 9443
+#   protocol                 = "tcp"
+#   security_group_id        = aws_security_group.eks_custom.id
+#   source_security_group_id = module.eks.node_security_group_id # or wherever this is output from
+#   description              = "Allow EKS node SG to reach webhook pods"
+# }
