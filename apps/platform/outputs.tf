@@ -71,3 +71,27 @@ output "platform_urls" {
     note    = local.shared_alb_dns != null ? "" : "ALB DNS pending; wait a few minutes or annotate Ingress with explicit public subnets to force reconciliation."
   }
 }
+
+output "kubernetes_ingress_argocd" {
+  value = kubernetes_ingress_v1.argocd
+}
+
+output "kubernetes_ingress_grafana" {
+  value = kubernetes_ingress_v1.grafana
+}
+
+# platform/outputs.tf
+output "argocd_ingress_name" {
+  value = kubernetes_ingress_v1.argocd.metadata[0].name
+}
+
+output "grafana_ingress_name" {
+  value = kubernetes_ingress_v1.grafana.metadata[0].name
+}
+output "argocd_ingress_namespace" {
+  value = kubernetes_ingress_v1.argocd.metadata[0].namespace
+}
+
+output "grafana_ingress_namespace" {
+  value = kubernetes_ingress_v1.grafana.metadata[0].namespace
+}

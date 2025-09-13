@@ -144,8 +144,15 @@ resource "aws_iam_openid_connect_provider" "openid" {
 // Launch template to apply Name tag to instances in the node group
 resource "aws_launch_template" "node" {
   name_prefix = "${var.eks_cluster_name}-ng"
-  vpc_security_group_ids = var.eks_additional_sg_ids
   key_name      = var.ssh_key_name
+
+  # Ensure worker nodes always receive public IPs when placed in public subnets
+  # and attach the additional security groups at the network interface level
+  network_interfaces {
+    device_index                = 0
+    associate_public_ip_address = true
+    security_groups             = var.eks_additional_sg_ids
+  }
   
   block_device_mappings {
     device_name = "/dev/xvda"
@@ -329,5 +336,3 @@ resource "aws_iam_role_policy_attachment" "argocd_attach_existing" {
   role       = aws_iam_role.argocd[0].name
   policy_arn = var.argocd_policy_arn
 }
-
-

@@ -113,6 +113,21 @@ resource "aws_iam_role_policy_attachment" "alb_ingress_policy_attach_part2" {
   policy_arn = aws_iam_policy.alb_ingress_controller_part2.arn
 }
 
+# Ensure the AWS ELB service-linked role exists so ALBs can be created
+resource "aws_iam_service_linked_role" "elbv2" {
+  aws_service_name = "elasticloadbalancing.amazonaws.com"
+}
+
+# # Also attach the AWS-managed controller policy to stay aligned with AWS updates
+# data "aws_iam_policy" "AWSLoadBalancerController" {
+#   arn = "arn:aws:iam::aws:policy/AWSLoadBalancerControllerIAMPolicy"
+# }
+
+# resource "aws_iam_role_policy_attachment" "alb_ingress_managed" {
+#   role       = aws_iam_role.alb_ingress_controller.name
+#   policy_arn = data.aws_iam_policy.AWSLoadBalancerController.arn
+# }
+
 #########################################################
 # 3. Create Service Account linked to the IAM Role (IRSA)
 #########################################################
@@ -143,6 +158,8 @@ resource "helm_release" "aws_load_balancer_controller" {
     kubernetes_service_account.alb_sa,
     aws_iam_role_policy_attachment.alb_ingress_policy_attach,
     aws_iam_role_policy_attachment.alb_ingress_policy_attach_part2,
+    aws_iam_service_linked_role.elbv2,
+    kubernetes_ingress_class_v1.alb,
   ]
 
   values = [yamlencode({
@@ -156,9 +173,12 @@ resource "helm_release" "aws_load_balancer_controller" {
     rbac = {
       create = true
     }
-    createIngressClass = true
+    # We manage IngressClass explicitly via kubernetes resource
+    createIngressClass = false
     ingressClass       = "alb"
-    logLevel           = "info"
+    # logLevel           = "info"
+    logLevel           = "debug"
+
   })]
 }
 

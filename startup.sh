@@ -144,6 +144,14 @@ main() {
   wait_for_nodes
 
   echo "[startup] === Phase 2: Install ALB controller via Terraform (ingress/) ==="
+  # Pre-flight: ensure any pre-existing IngressClass 'alb' carries Helm ownership metadata
+  if kubectl get ingressclass alb >/dev/null 2>&1; then
+    echo "[startup] Reconciling ownership metadata on IngressClass/alb to avoid Helm adoption errors..."
+    kubectl label ingressclass alb app.kubernetes.io/managed-by=Helm --overwrite || true
+    kubectl annotate ingressclass alb \
+      meta.helm.sh/release-name=aws-load-balancer-controller \
+      meta.helm.sh/release-namespace=kube-system --overwrite || true
+  fi
   pushd ingress >/dev/null
   tf_cmd init -upgrade
   apply_cmd
@@ -164,6 +172,9 @@ main() {
   tf_cmd output platform_urls || true
   # Ensure Prometheus is ready to back its Service/Ingress
   ensure_prometheus_probes || true
+  # Surface current TargetGroupBindings for quick visibility
+  echo "[startup] Current TargetGroupBindings:"
+  kubectl get targetgroupbindings -A || true
   popd >/dev/null
 
   cat <<TIP

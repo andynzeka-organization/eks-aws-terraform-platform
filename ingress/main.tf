@@ -14,3 +14,4 @@ module "alb_ingress" {
     try(data.terraform_remote_state.infra.outputs.vpc_id, null)
   )
 }
+

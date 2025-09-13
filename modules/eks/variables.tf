@@ -47,7 +47,7 @@ variable "force_node_group_rollout" {
 variable "instance_types" {
   description = "Instance types for EKS node groups"
   type        = list(string)
-  default     = ["t3.large"]
+  default     = ["t3.medium"]
   # default     = ["t4g.small"] 
 }
 
