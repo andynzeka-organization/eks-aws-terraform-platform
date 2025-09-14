@@ -44,20 +44,3 @@ EOT
   }
 }
 
-#############################################
-# Preflight: SG 9443 check (warn-only)
-#############################################
-resource "null_resource" "validate_alb_webhook_sg" {
-  count = var.enable_ingress_preflight ? 1 : 0
-
-  triggers = {
-    always_run = timestamp()
-  }
-
-  provisioner "local-exec" {
-    interpreter = ["/bin/bash", "-c"]
-    command     = <<EOT
-SG_VALIDATE_STRICT=false "${path.root}/../../scripts/validate-alb-webhook-sg.sh" || true
-EOT
-  }
-}

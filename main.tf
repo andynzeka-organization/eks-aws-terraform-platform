@@ -9,6 +9,7 @@ module "vpc" {
   tags                 = var.tags
   cluster_name_for_tag = var.eks_cluster_name
   
+  
 }
 
 
