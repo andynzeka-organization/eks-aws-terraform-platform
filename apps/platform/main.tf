@@ -4,6 +4,9 @@ module "argocd" {
   create_namespace = true
   service_type     = "NodePort"
   service_annotations = {}
+  depends_on = [
+    null_resource.alb_webhook_ready
+  ]
 }
 
 module "grafana" {
@@ -12,5 +15,5 @@ module "grafana" {
   create_namespace    = true
   service_type        = "NodePort"
   service_annotations = {}
-  # depends_on          = [null_resource.alb_webhook_ready]
+  depends_on          = [null_resource.alb_webhook_ready]
 }
