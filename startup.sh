@@ -171,16 +171,21 @@ main() {
     ARGO_REGION=${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}
     echo "  - cluster=${ROOT_CLUSTER} region=${ARGO_REGION} subnets=$(echo "$ROOT_SUBNETS" | tr -d '\n')"
 
-    pushd argocd >/dev/null
-    tf_cmd init -upgrade
-    # Pass vars explicitly to avoid prompts
-    tf_cmd apply -auto-approve \
+  pushd argocd >/dev/null
+  tf_cmd init -upgrade
+  # Pass vars explicitly to avoid prompts
+  tf_cmd apply -auto-approve \
       -var "eks_cluster_name=${ROOT_CLUSTER}" \
       -var "aws_region=${ARGO_REGION}" \
       -var "public_subnet_ids=$(echo "$ROOT_SUBNETS" | jq -c .)"
-    echo "[startup] ArgoCD outputs:"
-    tf_cmd output -json || true
-    popd >/dev/null
+  echo "[startup] ArgoCD outputs:"
+  tf_cmd output -json || true
+  # Fallback: derive and print URL directly from the Ingress status
+  HOST=$(kubectl -n ${var_namespace:-argocd} get ingress argocd -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+  if [ -n "$HOST" ]; then
+    echo "[startup] ArgoCD URL: http://$HOST/argocd"
+  fi
+  popd >/dev/null
   else
     echo "[startup] argocd/ module not found; skipping ArgoCD deployment." >&2
   fi
@@ -195,7 +200,7 @@ main() {
 - kubectl -n kube-system logs deploy/aws-load-balancer-controller -f
 
 Argo CD:
-- URL: Use terraform -chdir=argocd output argocd_url (or argocd_ingress_hostname)
+- URL: Use terraform -chdir=argocd output argocd_ingress_url (or argocd_url)
 - Admin password: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo
 TIP
 }

@@ -50,71 +50,6 @@ resource "kubernetes_ingress_v1" "argocd" {
 }
 
 
-/*
-##############################
-# Grafana Ingress (disabled)
-##############################
-resource "kubernetes_ingress_v1" "grafana" {
-  metadata {
-    name      = "grafana"
-    namespace = "monitoring"
-
-    annotations = merge({
-      "kubernetes.io/ingress.class"           = "alb"
-      "alb.ingress.kubernetes.io/scheme"      = "internet-facing"
-      "alb.ingress.kubernetes.io/target-type" = "ip"
-      "alb.ingress.kubernetes.io/group.name"  = "monitoring"
-      # Health checks: target a concrete Grafana health endpoint under the subpath
-      # and allow 2xx/3xx responses as success.
-      "alb.ingress.kubernetes.io/healthcheck-path"   = "/grafana/api/health"
-      "alb.ingress.kubernetes.io/healthcheck-port"   = "traffic-port"
-      "alb.ingress.kubernetes.io/success-codes"      = "200-399"
-      "alb.ingress.kubernetes.io/subnets"     = join(",", try(data.terraform_remote_state.infra.outputs.public_subnet_ids, []))
-    }, {})
-  }
-
-  spec {
-    ingress_class_name = "alb"
-
-    rule {
-      http {
-        path {
-          path      = "/grafana"
-          path_type = "Prefix"
-
-          backend {
-            service {
-              name = "grafana"
-              port {
-                number = 80
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  depends_on = [
-    module.grafana,
-    null_resource.wait_alb_controller,
-    null_resource.alb_webhook_ready,
-    null_resource.wait_grafana_endpoints
-  ]
-
-  wait_for_load_balancer = false
-  timeouts {
-    create = "15m"
-  }
-}
-*/
-
-/* Ensure Grafana Service has ready endpoints before Ingress (disabled)
-resource "null_resource" "wait_grafana_endpoints" {}
-*/
-
-
-
 # Strip Ingress finalizers right before destroy so Terraform doesn't hang
 # waiting for the ALB controller to reconcile deletions.
 ##############################
@@ -159,25 +94,6 @@ EOT
   }
 }
 
-# ##############################
-# # Optional: Fix webhook SG permissions
-# ##############################
-# resource "null_resource" "validate_alb_webhook_sg" {
-#   provisioner "local-exec" {
-#     command = "chmod +x ./../../scripts/validate-alb-webhook-sg.sh && SG_VALIDATE_STRICT=false ./../../scripts/validate-alb-webhook-sg.sh || true"
-#     interpreter = ["/bin/bash", "-c"]
-#   }
-
-#   triggers = {
-#     always_run = timestamp()
-#   }
-# }
-
-/*
-resource "null_resource" "remove_grafana_ingress_finalizers" {
-  # disabled
-}
-*/
 ##########################
 resource "null_resource" "wait_alb_webhook" {
   provisioner "local-exec" {

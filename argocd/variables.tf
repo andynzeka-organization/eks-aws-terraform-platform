@@ -13,6 +13,8 @@ variable "aws_region" {
 variable "public_subnet_ids" {
   description = "Public subnet IDs for ALB"
   type        = list(string)
+  # If empty, the ALB controller will select subnets by VPC tagging
+  default     = []
 }
 
 variable "namespace" {

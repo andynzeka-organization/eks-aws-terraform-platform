@@ -79,10 +79,5 @@ variable "helm_namespace_monitoring" {
 variable "disk_size" {
   description = "Disk size for worker nodes in GiB"
   type        = number
-  default     = 35
+  default     = 30
 }
-
-# variable "eks_cluster_name" {
-#   type        = string
-#   description = "Name of the EKS Cluster"
-# }

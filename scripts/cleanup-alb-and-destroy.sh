@@ -18,6 +18,8 @@ set -euo pipefail
 #  - SLEEP (seconds between checks, default: 10)
 #  - FORCE (true|false, default: false)  # set true to skip interactive confirmation
 #  - FAST_ELB_CLEAN (true|false, default: true)  # if true, skip long waits and force-delete ALBs/TGs in VPC
+#  - ELB_ONLY (true|false, default: false)       # if true, only purge ALBs/TGs/ALB SGs, then exit
+#  - VPC_ID (optional)                           # VPC to target when purging ELBv2 resources (recommended)
 
 RELEASE_NAME=${RELEASE_NAME:-aws-load-balancer-controller}
 RELEASE_NAMESPACE=${RELEASE_NAMESPACE:-kube-system}
@@ -25,6 +27,7 @@ TIMEOUT=${TIMEOUT:-1200}
 SLEEP=${SLEEP:-10}
 FORCE=${FORCE:-false}
 FAST_ELB_CLEAN=${FAST_ELB_CLEAN:-true}
+ELB_ONLY=${ELB_ONLY:-false}
 # Extra args for kubectl to avoid long hangs
 KUBECTL_ARGS=(--request-timeout=10s)
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -179,12 +182,81 @@ delete_elbv2_by_cluster_tag() {
     echo "  - deleting TG: ${name:-$arn}"
     aws elbv2 delete-target-group --target-group-arn "$arn" --region "${region}" >/dev/null 2>&1 || true
   done
+
+  # Attempt to delete ALB-created SGs tagged for this cluster
+  local sgs
+  sgs=$(aws ec2 describe-security-groups --region "${region}" \
+    --filters Name=tag:elbv2.k8s.aws/cluster,Values="${cluster_name}" \
+    --query 'SecurityGroups[].GroupId' --output text 2>/dev/null || true)
+  for sg in $sgs; do
+    [[ -z "$sg" ]] && continue
+    echo "  - deleting SG: $sg (tagged elbv2.k8s.aws/cluster=${cluster_name})"
+    aws ec2 delete-security-group --region "${region}" --group-id "$sg" >/dev/null 2>&1 || true
+  done
+}
+
+# Best-effort: delete ALB-created security groups in VPC
+delete_alb_sgs_in_vpc() {
+  local vpc_id="$1"
+  echo "[destroy] Deleting ALB-related security groups in VPC ${vpc_id}..."
+  local json
+  json=$(aws ec2 describe-security-groups --filters Name=vpc-id,Values="${vpc_id}" --output json 2>/dev/null || echo '{}')
+  # Select SGs tagged for k8s ALB or with a k8s-ish name/description
+  echo "$json" | jq -r '
+    (.SecurityGroups // [])
+    | map(select((.Tags // []) | any(.Key == "elbv2.k8s.aws/cluster"))
+           or (.GroupName | test("^k8s-"))
+           or ((.Description // "") | test("kubernetes|k8s|Load Balancer", "i")))
+    | .[] | .GroupId' 2>/dev/null | while read -r sg; do
+      [[ -z "$sg" ]] && continue
+      echo "  - deleting SG: $sg"
+      aws ec2 delete-security-group --group-id "$sg" >/dev/null 2>&1 || true
+    done
+}
+
+# Print a quick blockers report for the VPC
+report_vpc_blockers() {
+  local vpc_id="$1"
+  echo "[destroy] Blockers report for VPC ${vpc_id}:"
+  aws elbv2 describe-load-balancers --query "LoadBalancers[?VpcId=='${vpc_id}'].[LoadBalancerName,State.Code]" --output table 2>/dev/null || true
+  aws elbv2 describe-target-groups --query "TargetGroups[?VpcId=='${vpc_id}'].[TargetGroupName,TargetGroupArn]" --output table 2>/dev/null || true
+  aws ec2 describe-security-groups --filters Name=vpc-id,Values="${vpc_id}" --query "SecurityGroups[?length(Tags[?Key=='elbv2.k8s.aws/cluster'])>\`0\`].[GroupId,GroupName]" --output table 2>/dev/null || true
+  aws ec2 describe-network-interfaces --filters Name=vpc-id,Values="${vpc_id}" --query "NetworkInterfaces[?Status=='in-use'].[NetworkInterfaceId,Description]" --output table 2>/dev/null || true
 }
 
 # Best-effort check whether the EKS cluster exists
 cluster_exists() {
   local cluster_name="$1" region="$2"
   aws eks describe-cluster --name "${cluster_name}" --region "${region}" >/dev/null 2>&1
+}
+
+disable_alb_webhooks_if_unavailable() {
+  # If the ALB controller webhook is unreachable, ingress deletes will hang.
+  # Try a short wait for the controller; if not available, delete webhook configs.
+  local wait_seconds=60
+  echo "[destroy] Checking ALB webhooks availability..."
+  if kubectl -n kube-system get deploy aws-load-balancer-controller >/dev/null 2>&1; then
+    echo "[destroy] Waiting up to ${wait_seconds}s for aws-load-balancer-controller to be Available..."
+    if ! kubectl -n kube-system wait --for=condition=available deployment/aws-load-balancer-controller --timeout=${wait_seconds}s >/dev/null 2>&1; then
+      echo "[destroy] Controller not Available; removing webhook configurations to unblock deletes."
+      for kind in validatingwebhookconfiguration mutatingwebhookconfiguration; do
+        for w in $(kubectl get ${kind} -o name 2>/dev/null | grep -E 'elbv2\.k8s\.aws|aws-load-balancer' || true); do
+          echo "  - deleting $w"
+          kubectl delete "$w" --ignore-not-found >/dev/null 2>&1 || true
+        done
+      done
+    else
+      echo "[destroy] ALB controller is Available; proceeding."
+    fi
+  else
+    echo "[destroy] ALB controller deployment not found; removing webhook configurations if present."
+    for kind in validatingwebhookconfiguration mutatingwebhookconfiguration; do
+      for w in $(kubectl get ${kind} -o name 2>/dev/null | grep -E 'elbv2\.k8s\.aws|aws-load-balancer' || true); do
+        echo "  - deleting $w"
+        kubectl delete "$w" --ignore-not-found >/dev/null 2>&1 || true
+      done
+    done
+  fi
 }
 
 destroy_argocd_module() {
@@ -200,7 +272,13 @@ destroy_argocd_module() {
     echo "[destroy] Destroying ArgoCD module (argocd/)..."
     pushd "${REPO_ROOT}/argocd" >/dev/null
     tf_cmd init -upgrade || true
-    tf_cmd destroy -auto-approve || true
+    # Resolve inputs from root to avoid prompts during destroy
+    ROOT_CLUSTER=$(tf_cmd -chdir="${REPO_ROOT}" output -raw eks_cluster_name 2>/dev/null || echo "${cluster}")
+    ROOT_SUBNETS=$(tf_cmd -chdir="${REPO_ROOT}" output -json public_subnet_ids 2>/dev/null || echo '[]')
+    tf_cmd destroy -auto-approve \
+      -var "eks_cluster_name=${ROOT_CLUSTER}" \
+      -var "aws_region=${region}" \
+      -var "public_subnet_ids=$(echo "$ROOT_SUBNETS" | jq -c .)" || true
     popd >/dev/null
   fi
 }
@@ -218,6 +296,7 @@ main() {
   REGION=${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}
   CLUSTER=${CLUSTER_NAME:-demo-eks-cluster}
   if cluster_exists "${CLUSTER}" "${REGION}"; then
+    disable_alb_webhooks_if_unavailable || true
     echo "[destroy] Deleting all Ingress resources cluster-wide..."
     kubectl "${KUBECTL_ARGS[@]}" delete ingress --all --all-namespaces --wait=false 2>/dev/null || true
 
@@ -238,8 +317,11 @@ main() {
     VPC_ID_RESOLVED=$(resolve_vpc_id || true)
     if [[ -n "${VPC_ID_RESOLVED}" ]]; then
       delete_elbv2_in_vpc "${VPC_ID_RESOLVED}"
+      delete_alb_sgs_in_vpc "${VPC_ID_RESOLVED}"
+      report_vpc_blockers "${VPC_ID_RESOLVED}"
     else
-      echo "[destroy] FAST_ELB_CLEAN: could not resolve VPC ID; skipping forced ALB/TG deletion." >&2
+      echo "[destroy] FAST_ELB_CLEAN: could not resolve VPC ID; attempting tag-based cleanup." >&2
+      delete_elbv2_by_cluster_tag "${CLUSTER}" "${REGION}" || true
     fi
   else
     wait_for_tgbs
@@ -250,6 +332,12 @@ main() {
     else
       echo "[destroy] Skipping ELBv2 wait: could not resolve VPC ID (set VPC_ID env to force)." >&2
     fi
+  fi
+
+  # If ELB_ONLY is requested, stop here after ELB cleanup
+  if [[ "${ELB_ONLY}" == "true" ]]; then
+    echo "[destroy] ELB_ONLY=true: finished ELB/TG/SG cleanup. Exiting without Terraform destroys."
+    exit 0
   fi
 
   # Delete IngressClass + RBAC manifests if present
