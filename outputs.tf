@@ -69,6 +69,11 @@ output "node_security_group_id" {
 #   description = "Grafana UI LoadBalancer URL"
 # }
 
+output "grafana_password_command" {
+  description = "Command to retrieve Grafana admin password from the cluster"
+  value       = "kubectl -n monitoring get secret grafana -o jsonpath='{.data.admin-password}' | base64 -d; echo"
+}
+
 # output "kube_prometheus_stack_helm_metadata" {
 #   description = "Metadata Block outlining status of the deployed kube-prometheus-stack release."
 #   value       = helm_release.kube_prometheus_stack.metadata

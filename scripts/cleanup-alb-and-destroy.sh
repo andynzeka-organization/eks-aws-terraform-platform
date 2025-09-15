@@ -89,17 +89,20 @@ wait_for_tgbs() {
 
 # Resolve VPC ID from env or terraform output
 resolve_vpc_id() {
+  # Prefer explicit VPC_ID env if provided
   if [[ -n "${VPC_ID:-}" ]]; then
     echo "${VPC_ID}"
     return 0
   fi
-  # Try terraform output in repo root
+  # Avoid noisy Terraform output warnings by suppressing all output
   local v
-  if v=$(terraform output -raw vpc_id 2>/dev/null); then
+  v=$(terraform output -raw vpc_id >/dev/null 2>&1 || true)
+  if [[ -n "${v:-}" ]]; then
     echo "${v}"
     return 0
   fi
-  if v=$(tf_cmd output -raw vpc_id 2>/dev/null); then
+  v=$(tf_cmd output -raw vpc_id >/dev/null 2>&1 || true)
+  if [[ -n "${v:-}" ]]; then
     echo "${v}"
     return 0
   fi
@@ -156,11 +159,46 @@ delete_elbv2_in_vpc() {
   done
 }
 
-# Destroy platform apps (Helm) via Terraform so no Services/Ingress remain
-destroy_platform_apps() {
-  if [[ -d "${REPO_ROOT}/apps/platform" ]]; then
-    echo "[destroy] Destroying platform apps (apps/platform)..."
-    pushd "${REPO_ROOT}/apps/platform" >/dev/null
+# Delete ELBv2 resources by cluster tag (fallback when VPC ID is unknown)
+delete_elbv2_by_cluster_tag() {
+  local cluster_name="$1" region="$2"
+  echo "[destroy] FAST_ELB_CLEAN=true -> deleting ALBs/TargetGroups tagged for cluster ${cluster_name} in ${region}..."
+  # Delete LBs first
+  local lbs
+  lbs=$(aws elbv2 describe-load-balancers --region "${region}" --query "LoadBalancers[?contains(Tags[?Key=='kubernetes.io/cluster/${cluster_name}'].Value | [0], 'owned')].[LoadBalancerArn,LoadBalancerName]" --output json 2>/dev/null || echo '[]')
+  echo "$lbs" | jq -r '.[] | @tsv' 2>/dev/null | while IFS=$'\t' read -r arn name; do
+    [[ -z "$arn" ]] && continue
+    echo "  - deleting LB: ${name:-$arn}"
+    aws elbv2 delete-load-balancer --load-balancer-arn "$arn" --region "${region}" >/dev/null 2>&1 || true
+  done
+  # Then delete Target Groups with the same tag
+  local tgs
+  tgs=$(aws elbv2 describe-target-groups --region "${region}" --query "TargetGroups[?contains(Tags[?Key=='kubernetes.io/cluster/${cluster_name}'].Value | [0], 'owned')].[TargetGroupArn,TargetGroupName]" --output json 2>/dev/null || echo '[]')
+  echo "$tgs" | jq -r '.[] | @tsv' 2>/dev/null | while IFS=$'\t' read -r arn name; do
+    [[ -z "$arn" ]] && continue
+    echo "  - deleting TG: ${name:-$arn}"
+    aws elbv2 delete-target-group --target-group-arn "$arn" --region "${region}" >/dev/null 2>&1 || true
+  done
+}
+
+# Best-effort check whether the EKS cluster exists
+cluster_exists() {
+  local cluster_name="$1" region="$2"
+  aws eks describe-cluster --name "${cluster_name}" --region "${region}" >/dev/null 2>&1
+}
+
+destroy_argocd_module() {
+  if [[ -d "${REPO_ROOT}/argocd" ]]; then
+    # Skip if the cluster no longer exists; providers/data sources will fail
+    local region cluster
+    region=${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}
+    cluster=${CLUSTER_NAME:-demo-eks-cluster}
+    if ! cluster_exists "${cluster}" "${region}"; then
+      echo "[destroy] Skipping argocd/ destroy: cluster ${cluster} not found in ${region}."
+      return 0
+    fi
+    echo "[destroy] Destroying ArgoCD module (argocd/)..."
+    pushd "${REPO_ROOT}/argocd" >/dev/null
     tf_cmd init -upgrade || true
     tf_cmd destroy -auto-approve || true
     popd >/dev/null
@@ -173,20 +211,28 @@ main() {
   # Ensure we run from repo root (script resides in scripts/)
   cd "${REPO_ROOT}"
 
-  # Proactively destroy platform apps to remove Services/Ingresses
-  destroy_platform_apps
+  # Proactively destroy ArgoCD to remove its Ingress/Services first
+  destroy_argocd_module
 
-  echo "[destroy] Deleting all Ingress resources cluster-wide..."
-  # Delete all ingresses without waiting to avoid blocking on finalizers
-  kubectl "${KUBECTL_ARGS[@]}" delete ingress --all --all-namespaces --wait=false 2>/dev/null || true
+  # Only run kubectl/helm operations if the cluster exists
+  REGION=${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}
+  CLUSTER=${CLUSTER_NAME:-demo-eks-cluster}
+  if cluster_exists "${CLUSTER}" "${REGION}"; then
+    echo "[destroy] Deleting all Ingress resources cluster-wide..."
+    kubectl "${KUBECTL_ARGS[@]}" delete ingress --all --all-namespaces --wait=false 2>/dev/null || true
 
-  echo "[destroy] Stripping ingress finalizers to prevent hanging deletions..."
-  # Patch all remaining ingresses to remove finalizers (idempotent)
-  while IFS= read -r ing; do
-    [ -n "$ing" ] || continue
-    echo "  - patching $ing"
-    kubectl "${KUBECTL_ARGS[@]}" patch "$ing" --type=json -p='[{"op":"remove","path":"/metadata/finalizers"}]' 2>/dev/null || true
-  done < <(kubectl "${KUBECTL_ARGS[@]}" get ingress -A -o name 2>/dev/null || true)
+    echo "[destroy] Stripping ingress finalizers to prevent hanging deletions..."
+    while IFS= read -r ing; do
+      [ -n "$ing" ] || continue
+      echo "  - patching $ing"
+      kubectl "${KUBECTL_ARGS[@]}" patch "$ing" --type=json -p='[{"op":"remove","path":"/metadata/finalizers"}]' 2>/dev/null || true
+    done < <(kubectl "${KUBECTL_ARGS[@]}" get ingress -A -o name 2>/dev/null || true)
+
+    echo "[destroy] Uninstalling Helm release ${RELEASE_NAME} in ${RELEASE_NAMESPACE}..."
+    helm uninstall "${RELEASE_NAME}" -n "${RELEASE_NAMESPACE}" >/dev/null 2>&1 || true
+  else
+    echo "[destroy] Cluster ${CLUSTER} not found in ${REGION}; skipping kubectl/helm cleanup."
+  fi
 
   if [[ "${FAST_ELB_CLEAN}" == "true" ]]; then
     VPC_ID_RESOLVED=$(resolve_vpc_id || true)
@@ -206,9 +252,6 @@ main() {
     fi
   fi
 
-  echo "[destroy] Uninstalling Helm release ${RELEASE_NAME} in ${RELEASE_NAMESPACE}..."
-  helm uninstall "${RELEASE_NAME}" -n "${RELEASE_NAMESPACE}" || true
-
   # Delete IngressClass + RBAC manifests if present
   if [[ -f "k8s-examples/aws-lb-controller-rbac/ingressclass-rbac.yaml" ]]; then
     echo "[destroy] Deleting IngressClass + RBAC manifests..."
@@ -220,8 +263,13 @@ main() {
 
   # Terraform destroy in ingress module
   if [[ -d "ingress" ]]; then
-    echo "[destroy] Terraform destroy in ingress/ ..."
-    (cd ingress && tf_cmd destroy -auto-approve) || true
+    # Skip if cluster is gone to avoid provider/data source failures
+    if cluster_exists "${CLUSTER}" "${REGION}"; then
+      echo "[destroy] Terraform destroy in ingress/ ..."
+      (cd ingress && tf_cmd destroy -auto-approve) || true
+    else
+      echo "[destroy] Skipping ingress/ destroy: cluster ${CLUSTER} not found in ${REGION}."
+    fi
   fi
 
   # Terraform destroy in repo root (retry with forced VPC cleanup if needed)
@@ -234,7 +282,11 @@ main() {
       echo "[destroy] Retrying root Terraform destroy after VPC cleanup..."
       tf_cmd destroy -auto-approve || true
     else
-      echo "[destroy] Could not resolve VPC ID or force-delete script not available." >&2
+      # Fall back to cluster-tag-based deletion if VPC is unknown
+      echo "[destroy] Could not resolve VPC ID. Deleting ELBv2 resources by cluster tag..." >&2
+      delete_elbv2_by_cluster_tag "${CLUSTER}" "${REGION}" || true
+      echo "[destroy] Retrying root Terraform destroy after ELBv2 tag-based cleanup..."
+      tf_cmd destroy -auto-approve || true
     fi
   fi
 

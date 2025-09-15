@@ -22,7 +22,7 @@ while true; do
     echo "[wait] Timeout waiting for ArgoCD server deployment." >&2
     exit 1
   fi
-  sleep "$$SLEEP"
+  sleep "$SLEEP"
 done
 EOT
   }
@@ -69,7 +69,7 @@ while true; do
     echo "[wait] Timeout waiting for Ingress hostname; check ALB controller." >&2
     exit 1
   fi
-  sleep "$$SLEEP"
+  sleep "$SLEEP"
 done
 EOT
   }

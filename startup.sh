@@ -9,8 +9,8 @@ set -euo pipefail
 # 2) Wait for nodes Ready
 # 3) Ingress/: terraform init -upgrade && terraform apply -auto-approve
 # 4) Verify controller Deployment
-# 5) apps/platform: terraform init -upgrade && terraform apply -auto-approve
-# 6) Print platform URLs and verification tips
+# 5) argocd/: terraform init -upgrade && terraform apply -auto-approve
+# 6) Print ArgoCD URL and verification tips
 #
 # Env vars:
 # - AUTO_APPROVE=true|false (default true)
@@ -162,32 +162,41 @@ main() {
   # Verify webhook endpoints are backing the service before creating Ingresses
   wait_for_alb_webhook
 
-  echo "[startup] === Phase 3: Deploy platform apps (apps/platform) ==="
-  pushd apps/platform >/dev/null
-  tf_cmd init -upgrade
-  apply_cmd
+  echo "[startup] === Phase 3: Deploy ArgoCD (argocd/) ==="
+  if [[ -d "argocd" ]]; then
+    # Resolve inputs from root outputs and env, to avoid prompts
+    echo "[startup] Resolving ArgoCD module inputs from root outputs..."
+    ROOT_CLUSTER=$(tf_cmd output -raw eks_cluster_name 2>/dev/null || echo "demo-eks-cluster")
+    ROOT_SUBNETS=$(tf_cmd output -json public_subnet_ids 2>/dev/null || echo '[]')
+    ARGO_REGION=${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}
+    echo "  - cluster=${ROOT_CLUSTER} region=${ARGO_REGION} subnets=$(echo "$ROOT_SUBNETS" | tr -d '\n')"
 
-  echo "[startup] Platform outputs:"
-  # Try to print combined URLs (may be pending while ALB provisions)
-  tf_cmd output platform_urls || true
-  # Ensure Prometheus is ready to back its Service/Ingress
-  ensure_prometheus_probes || true
-  # Surface current TargetGroupBindings for quick visibility
+    pushd argocd >/dev/null
+    tf_cmd init -upgrade
+    # Pass vars explicitly to avoid prompts
+    tf_cmd apply -auto-approve \
+      -var "eks_cluster_name=${ROOT_CLUSTER}" \
+      -var "aws_region=${ARGO_REGION}" \
+      -var "public_subnet_ids=$(echo "$ROOT_SUBNETS" | jq -c .)"
+    echo "[startup] ArgoCD outputs:"
+    tf_cmd output -json || true
+    popd >/dev/null
+  else
+    echo "[startup] argocd/ module not found; skipping ArgoCD deployment." >&2
+  fi
+
   echo "[startup] Current TargetGroupBindings:"
   kubectl get targetgroupbindings -A || true
-  popd >/dev/null
 
   cat <<TIP
 [startup] Verify resources:
-- kubectl -n monitoring get ingress monitoring -o wide
 - kubectl -n argocd get ingress argocd -o wide
 - kubectl get targetgroupbindings -A
 - kubectl -n kube-system logs deploy/aws-load-balancer-controller -f
 
-When ALB DNS appears, use:
-- Argo CD:     http://<ALB-DNS>/argocd (admin password: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo)
-- Grafana:     http://<ALB-DNS>/grafana (password: terraform output grafana_admin_password)
-- Prometheus:  http://<ALB-DNS>/prometheus
+Argo CD:
+- URL: Use terraform -chdir=argocd output argocd_url (or argocd_ingress_hostname)
+- Admin password: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo
 TIP
 }
 

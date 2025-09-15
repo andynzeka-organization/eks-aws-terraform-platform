@@ -39,15 +39,20 @@ resource "kubernetes_ingress_v1" "argocd" {
 
   depends_on = [
     module.argocd,
-    null_resource.wait_alb_controller
+    null_resource.wait_alb_controller,
+    null_resource.alb_webhook_ready
   ]
 
-  wait_for_load_balancer = true
+  wait_for_load_balancer = false
+  timeouts {
+    create = "10m"
+  }
 }
 
 
+/*
 ##############################
-# Grafana Ingress
+# Grafana Ingress (disabled)
 ##############################
 resource "kubernetes_ingress_v1" "grafana" {
   metadata {
@@ -59,6 +64,11 @@ resource "kubernetes_ingress_v1" "grafana" {
       "alb.ingress.kubernetes.io/scheme"      = "internet-facing"
       "alb.ingress.kubernetes.io/target-type" = "ip"
       "alb.ingress.kubernetes.io/group.name"  = "monitoring"
+      # Health checks: target a concrete Grafana health endpoint under the subpath
+      # and allow 2xx/3xx responses as success.
+      "alb.ingress.kubernetes.io/healthcheck-path"   = "/grafana/api/health"
+      "alb.ingress.kubernetes.io/healthcheck-port"   = "traffic-port"
+      "alb.ingress.kubernetes.io/success-codes"      = "200-399"
       "alb.ingress.kubernetes.io/subnets"     = join(",", try(data.terraform_remote_state.infra.outputs.public_subnet_ids, []))
     }, {})
   }
@@ -87,11 +97,21 @@ resource "kubernetes_ingress_v1" "grafana" {
 
   depends_on = [
     module.grafana,
-    null_resource.wait_alb_controller
+    null_resource.wait_alb_controller,
+    null_resource.alb_webhook_ready,
+    null_resource.wait_grafana_endpoints
   ]
 
-  wait_for_load_balancer = true
+  wait_for_load_balancer = false
+  timeouts {
+    create = "15m"
+  }
 }
+*/
+
+/* Ensure Grafana Service has ready endpoints before Ingress (disabled)
+resource "null_resource" "wait_grafana_endpoints" {}
+*/
 
 
 
@@ -102,15 +122,15 @@ resource "kubernetes_ingress_v1" "grafana" {
 ##############################
 resource "null_resource" "strip_ingress_finalizers_on_destroy" {
   depends_on = [
-    kubernetes_ingress_v1.argocd,
-    kubernetes_ingress_v1.grafana
+    kubernetes_ingress_v1.argocd
   ]
 
   provisioner "local-exec" {
     command = <<EOT
 echo "[destroy-pre] Stripping Ingress finalizers to prevent hang..."
 kubectl patch ingress argocd -n argocd -p '{"metadata":{"finalizers":[]}}' --type=merge || true
-kubectl patch ingress grafana -n monitoring -p '{"metadata":{"finalizers":[]}}' --type=merge || true
+# Grafana disabled
+# kubectl patch ingress grafana -n monitoring -p '{"metadata":{"finalizers":[]}}' --type=merge || true
 EOT
     interpreter = ["/bin/bash", "-c"]
   }
@@ -153,17 +173,11 @@ EOT
 #   }
 # }
 
+/*
 resource "null_resource" "remove_grafana_ingress_finalizers" {
-  triggers = {
-    always_run = timestamp()
-  }
-
-  provisioner "local-exec" {
-    command = "kubectl patch ingress grafana -n monitoring -p '{\"metadata\":{\"finalizers\":null}}' --type=merge || true"
-  }
-
-  depends_on = [kubernetes_ingress_v1.grafana]
+  # disabled
 }
+*/
 ##########################
 resource "null_resource" "wait_alb_webhook" {
   provisioner "local-exec" {
@@ -172,4 +186,45 @@ resource "null_resource" "wait_alb_webhook" {
   triggers = {
     always_run = timestamp()
   }
+}
+resource "null_resource" "wait_tgbs" {
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<EOT
+set -euo pipefail
+echo "[wait] Waiting for Ingress hostnames (ALB ready)..."
+START=$(date +%s)
+TIMEOUT=$${TIMEOUT:-1200}
+SLEEP=$${SLEEP:-10}
+
+wait_ingress_hostname() {
+  local ns="$1" name="$2"
+  while true; do
+    host=$(kubectl -n "$ns" get ingress "$name" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+    echo "  - $ns/$name hostname: $${host:-<none>}"
+    if [[ -n "$${host:-}" ]]; then
+      return 0
+    fi
+    now=$(date +%s)
+    if (( now - START > TIMEOUT )); then
+      echo "[wait] Timeout waiting for $ns/$name hostname; check controller logs and annotations." >&2
+      return 1
+    fi
+    sleep "$$SLEEP"
+  done
+}
+
+## Grafana disabled
+wait_ingress_hostname argocd argocd
+echo "[wait] Ingress hostnames are present."
+EOT
+  }
+
+  triggers = {
+    always_run = timestamp()
+  }
+
+  depends_on = [
+    kubernetes_ingress_v1.argocd
+  ]
 }

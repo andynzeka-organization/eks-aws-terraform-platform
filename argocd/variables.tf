@@ -1,11 +1,13 @@
 variable "eks_cluster_name" {
   description = "Name of the existing EKS cluster"
   type        = string
+  default     = "demo-eks-cluster"
 }
 
 variable "aws_region" {
-  description = "AWS region of the EKS cluster"
+  description = "AWS region of the EKS cluster (defaults to us-east-1; override via -var or AWS provider env)"
   type        = string
+  default     = "us-east-1"
 }
 
 variable "public_subnet_ids" {

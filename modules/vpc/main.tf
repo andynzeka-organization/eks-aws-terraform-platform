@@ -69,6 +69,33 @@ resource "aws_subnet" "public" {
     "kubernetes.io/role/elb" = "1"
   }, local.cluster_discovery_tag)
 depends_on = [ aws_internet_gateway.igw ]
+
+  # Pre-destroy helper: best-effort cleanup of ENIs in this subnet to unblock deletion
+  provisioner "local-exec" {
+    when        = destroy
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<EOT
+set -euo pipefail
+SUBNET_ID="${self.id}"
+echo "[subnet-destroy] Cleaning ENIs in subnet $SUBNET_ID ..."
+enis=$(aws ec2 describe-network-interfaces \
+  --filters Name=subnet-id,Values="$SUBNET_ID" \
+  --query 'NetworkInterfaces[].{Id:NetworkInterfaceId,Attachment:Attachment.AttachmentId,Status:Status}' \
+  --output json 2>/dev/null || echo '[]')
+echo "$enis" | jq -c '.[]' 2>/dev/null | while read -r item; do
+  id=$(echo "$item" | jq -r '.Id')
+  att=$(echo "$item" | jq -r '.Attachment // empty')
+  st=$(echo "$item" | jq -r '.Status // empty')
+  [[ -z "$id" || "$id" == "null" ]] && continue
+  if [[ -n "$att" && "$att" != "null" ]]; then
+    echo "  - detaching ENI $id (attachment $att, status: $st)" && aws ec2 detach-network-interface --attachment-id "$att" --force >/dev/null 2>&1 || true
+    sleep 2
+  fi
+  echo "  - deleting ENI $id" && aws ec2 delete-network-interface --network-interface-id "$id" >/dev/null 2>&1 || true
+done
+echo "[subnet-destroy] ENI cleanup complete for $SUBNET_ID."
+EOT
+  }
 }
 
 resource "aws_subnet" "private" {
@@ -88,6 +115,33 @@ resource "aws_subnet" "private" {
   }, local.cluster_discovery_tag)
   
   depends_on = [ aws_internet_gateway.igw ]
+
+  # Pre-destroy helper: best-effort cleanup of ENIs in this subnet to unblock deletion
+  provisioner "local-exec" {
+    when        = destroy
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<EOT
+set -euo pipefail
+SUBNET_ID="${self.id}"
+echo "[subnet-destroy] Cleaning ENIs in subnet $SUBNET_ID ..."
+enis=$(aws ec2 describe-network-interfaces \
+  --filters Name=subnet-id,Values="$SUBNET_ID" \
+  --query 'NetworkInterfaces[].{Id:NetworkInterfaceId,Attachment:Attachment.AttachmentId,Status:Status}' \
+  --output json 2>/dev/null || echo '[]')
+echo "$enis" | jq -c '.[]' 2>/dev/null | while read -r item; do
+  id=$(echo "$item" | jq -r '.Id')
+  att=$(echo "$item" | jq -r '.Attachment // empty')
+  st=$(echo "$item" | jq -r '.Status // empty')
+  [[ -z "$id" || "$id" == "null" ]] && continue
+  if [[ -n "$att" && "$att" != "null" ]]; then
+    echo "  - detaching ENI $id (attachment $att, status: $st)" && aws ec2 detach-network-interface --attachment-id "$att" --force >/dev/null 2>&1 || true
+    sleep 2
+  fi
+  echo "  - deleting ENI $id" && aws ec2 delete-network-interface --network-interface-id "$id" >/dev/null 2>&1 || true
+done
+echo "[subnet-destroy] ENI cleanup complete for $SUBNET_ID."
+EOT
+  }
 }
 
 ## NAT resources disabled (nodes will use public subnets with public IPs)
