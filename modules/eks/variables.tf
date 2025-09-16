@@ -17,25 +17,25 @@ variable "subnet_ids" {
 variable "desired_size" {
   description = "Desired number of nodes in the node group"
   type        = number
-  default     = 1
+  default     = 3
 }
 
 variable "min_size" {
   description = "Minimum number of nodes in the node group"
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "max_size" {
   description = "Maximum number of nodes in the node group"
   type        = number
-  default     = 3
+  default     = 4
 }
 
 variable "max_unavailable" {
   description = "Number of nodes that can be unavailable during a node group update"
   type        = number
-  default     = 1
+  default     = 4
 }
 
 variable "force_node_group_rollout" {

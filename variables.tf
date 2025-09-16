@@ -79,5 +79,5 @@ variable "helm_namespace_monitoring" {
 variable "disk_size" {
   description = "Disk size for worker nodes in GiB"
   type        = number
-  default     = 30
+  default     = 35
 }
