@@ -9,6 +9,7 @@ set -euo pipefail
 #  - Wait for all TargetGroupBindings to be removed (avoids orphan ALBs)
 #  - Uninstall the AWS Load Balancer Controller Helm release
 #  - Delete the IngressClass and RBAC manifests added by this repo
+#  - Remove remaining ArgoCD CRDs (applications, applicationsets, appprojects)
 #  - Run `terraform destroy -auto-approve` in `ingress/` and in repo root
 #
 # Env vars:
@@ -280,6 +281,12 @@ destroy_argocd_module() {
       -var "aws_region=${region}" \
       -var "public_subnet_ids=$(echo "$ROOT_SUBNETS" | jq -c .)" || true
     popd >/dev/null
+    echo "[destroy] Deleting ArgoCD CRDs..."
+    kubectl "${KUBECTL_ARGS[@]}" delete crd \
+      applications.argoproj.io \
+      applicationsets.argoproj.io \
+      appprojects.argoproj.io \
+      --ignore-not-found >/dev/null 2>&1 || true
   fi
 }
 
@@ -318,6 +325,7 @@ main() {
     if [[ -n "${VPC_ID_RESOLVED}" ]]; then
       delete_elbv2_in_vpc "${VPC_ID_RESOLVED}"
       delete_alb_sgs_in_vpc "${VPC_ID_RESOLVED}"
+      wait_for_elbv2_cleanup "${VPC_ID_RESOLVED}"
       report_vpc_blockers "${VPC_ID_RESOLVED}"
     else
       echo "[destroy] FAST_ELB_CLEAN: could not resolve VPC ID; attempting tag-based cleanup." >&2

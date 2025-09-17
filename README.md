@@ -3,10 +3,11 @@
 Provision a production‑ready VPC and Amazon EKS cluster, plus optional add‑ons (ALB Controller, EBS CSI, cert‑manager, metrics‑server) and application charts (Argo CD, Grafana, Prometheus).
 
 **Highlights**
-- VPC with public/private subnets, IGW, NAT (per‑AZ or shared), and route tables.
+- VPC with public/private subnets, IGW, NAT (per-AZ or shared), and route tables.
 - EKS with managed node group, IAM roles, OIDC provider, and IRSA roles.
 - Single ALB Ingress for both Grafana and Prometheus using path routing (`/grafana`, `/prometheus`). No domain required — use the ALB DNS name.
-- Optional Helm‑based apps under `apps/` with a ready‑to‑use providers setup.
+- Worker node security group includes intra-VPC allowance so pods (e.g., Argo CD repo-server, Redis) can communicate and resolve DNS across nodes.
+- Optional Helm-based apps under `apps/` with a ready-to-use providers setup.
 - Worker EC2 instances are tagged with a `Name` (default: `demo-worker-node`).
 
 ## Repository Layout
@@ -54,6 +55,7 @@ Provision a production‑ready VPC and Amazon EKS cluster, plus optional add‑o
   - `monitoring_ingress_hostname` → ALB DNS
   - `grafana_ingress_url`, `prometheus_ingress_url`
   - `post_install_summary` → handy cheatsheet of URLs and credentials
+- The root worker-node security group now allows all intra-VPC traffic; make sure you re-run `terraform apply` at the root so the change propagates before deploying apps.
 
 ## Variables (Root)
 
@@ -129,12 +131,14 @@ ALB Controller
 - Run `terraform destroy` from the root. The node group is deleted before the cluster. If AWS reports the cluster has nodegroups attached, destroy the node group first:
 - `terraform destroy -target=module.eks.aws_eks_node_group.worker-node`
 - Then `terraform destroy` again for the rest.
+- Use `scripts/cleanup-alb-and-destroy.sh` for full teardown; it now also removes Argo CD CRDs after the module destroy completes, ensuring the API server stays clean.
 
 ## Troubleshooting
 
 - Helm release timeouts: ensure the cluster API is reachable and your kubeconfig is updated. For Prometheus, persistence is disabled and Alertmanager is off by default to avoid PVC Pending on clusters without a default StorageClass.
 - Subnet math: subnets are derived as `/20` by default; adjust the `cidrsubnet` logic in the root `main.tf` if you need different sizes.
 - Resource address changes: if you rename resources inside modules, use `terraform state mv` to keep state aligned and avoid deletion ordering issues.
+- Argo CD reports "repository not accessible": the startup script now runs a DNS/HTTPS check against GitHub. If it fails, ensure the worker node security group update has been applied, route tables include an Internet/NAT path, and no corporate proxy is blocking outbound HTTPS.
 
 ## Recent Changes (How‑To recap)
 - Shared ALB Ingress added for Grafana and Prometheus. Use `terraform output monitoring_ingress_hostname` and open `http://<ALB-DNS>/grafana` or `/prometheus`.

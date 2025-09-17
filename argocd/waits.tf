@@ -84,6 +84,35 @@ resource "null_resource" "strip_ingress_finalizers_on_destroy" {
     interpreter = ["/bin/bash", "-c"]
     command     = <<EOT
 set -euo pipefail
+
+disable_alb_webhooks_if_unavailable() {
+  local wait_seconds=60
+  echo "[destroy-pre] Checking ALB webhooks availability..."
+  if kubectl -n kube-system get deploy aws-load-balancer-controller >/dev/null 2>&1; then
+    echo "[destroy-pre] Waiting up to $${wait_seconds}s for aws-load-balancer-controller to be Available..."
+    if ! kubectl -n kube-system wait --for=condition=available deployment/aws-load-balancer-controller --timeout=$${wait_seconds}s >/dev/null 2>&1; then
+      echo "[destroy-pre] Controller not Available; removing webhook configurations."
+      cleanup_webhooks
+    else
+      echo "[destroy-pre] ALB controller is Available; proceeding."
+    fi
+  else
+    echo "[destroy-pre] ALB controller deployment not found; removing webhook configurations if present."
+    cleanup_webhooks
+  fi
+}
+
+cleanup_webhooks() {
+  for kind in validatingwebhookconfiguration mutatingwebhookconfiguration; do
+    for w in $(kubectl get $${kind} -o name 2>/dev/null | grep -E 'elbv2\.k8s\.aws|aws-load-balancer' || true); do
+      echo "    - deleting $${w}"
+      kubectl delete "$${w}" --ignore-not-found >/dev/null 2>&1 || true
+    done
+  done
+}
+
+disable_alb_webhooks_if_unavailable || true
+
 echo "[destroy-pre] Stripping finalizers on Ingress argocd (all namespaces)..."
 namespaces=$(kubectl get ingress -A -o jsonpath='{range .items[?(@.metadata.name=="argocd")]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null || true)
 for ns in $namespaces; do

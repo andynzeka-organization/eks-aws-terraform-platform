@@ -131,6 +131,20 @@ ensure_prometheus_probes() {
   fi
 }
 
+verify_dns_connectivity() {
+  local ns=${1:-argocd}
+  echo "[startup] Verifying cluster DNS + HTTPS egress (github.com)..."
+  if ! kubectl "${KUBECTL_ARGS[@]}" get ns "$ns" >/dev/null 2>&1; then
+    ns=default
+  fi
+  if kubectl "${KUBECTL_ARGS[@]}" run argocd-dns-check --rm -i --restart=Never -n "$ns" \
+      --image=curlimages/curl:8.8.0 --command -- curl -sS --max-time 15 -I https://github.com >/dev/null; then
+    echo "[startup] DNS and outbound HTTPS verified."
+  else
+    echo "[startup] WARNING: Unable to reach https://github.com from the cluster. Check node security group rules, route tables, or proxy settings." >&2
+  fi
+}
+
 main() {
   # Ensure we run from repo root (script resides at repo root)
   SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -186,6 +200,7 @@ main() {
     echo "[startup] ArgoCD URL: http://$HOST/argocd"
   fi
   popd >/dev/null
+  verify_dns_connectivity argocd
   else
     echo "[startup] argocd/ module not found; skipping ArgoCD deployment." >&2
   fi
