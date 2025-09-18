@@ -135,7 +135,7 @@ resource "aws_security_group_rule" "allow_alb_to_grafana" {
 }
 */
 
-# # From EKS NodeGroup SG to Pod SG
+### From EKS NodeGroup SG to Pod SG
 # resource "aws_security_group_rule" "allow_webhook_from_node_sg" {
 #   type                     = "ingress"
 #   from_port                = 9443
