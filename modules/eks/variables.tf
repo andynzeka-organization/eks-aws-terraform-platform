@@ -14,6 +14,13 @@ variable "subnet_ids" {
   type        = list(string)
 }
 
+variable "instance_types" {
+  description = "Instance types for EKS node groups"
+  type        = list(string)
+  default     = ["t3.large"]
+  # default     = ["t4g.small"] 
+}
+
 variable "desired_size" {
   description = "Desired number of nodes in the node group"
   type        = number
@@ -29,13 +36,13 @@ variable "min_size" {
 variable "max_size" {
   description = "Maximum number of nodes in the node group"
   type        = number
-  default     = 4
+  default     = 3
 }
 
 variable "max_unavailable" {
   description = "Number of nodes that can be unavailable during a node group update"
   type        = number
-  default     = 1
+  default     = 4
 }
 
 variable "force_node_group_rollout" {
@@ -44,12 +51,7 @@ variable "force_node_group_rollout" {
   default     = true
 }
 
-variable "instance_types" {
-  description = "Instance types for EKS node groups"
-  type        = list(string)
-  default     = ["t3.medium"]
-  # default     = ["t4g.small"] 
-}
+
 
 variable "capacity_type" {
   description = "Capacity type for node group (ON_DEMAND or SPOT)"

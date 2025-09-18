@@ -11,7 +11,7 @@
 locals {
   ingresses_to_clean = [
     kubernetes_ingress_v1.argocd,
-    kubernetes_ingress_v1.grafana,
+    # kubernetes_ingress_v1.grafana, # disabled
   ]
 }
 
@@ -36,8 +36,7 @@ EOT
   }
 
   depends_on = [
-    kubernetes_ingress_v1.argocd,
-    kubernetes_ingress_v1.grafana
+    kubernetes_ingress_v1.argocd
   ]
 }
 
@@ -184,8 +183,7 @@ resource "null_resource" "force_remove_ingress_finalizers" {
 echo "Removing finalizers for argocd ingress..."
 kubectl patch ingress argocd -n argocd -p '{"metadata":{"finalizers":null}}' --type=merge || true
 
-echo "Removing finalizers for grafana ingress..."
-kubectl patch ingress grafana -n monitoring -p '{"metadata":{"finalizers":null}}' --type=merge || true
+echo "Grafana ingress disabled; skipping finalizer removal."
 EOT
     interpreter = ["/bin/bash", "-c"]
   }
@@ -196,6 +194,104 @@ EOT
 
   depends_on = [
     kubernetes_ingress_v1.argocd,
-    kubernetes_ingress_v1.grafana
+    # kubernetes_ingress_v1.grafana
   ]
 }
+
+# # -------------------------------------------------------------------------
+# # Destroy-time cleanup: remove Ingress finalizers, delete ALBs/TGs/ALB SGs
+# # This runs during terraform destroy of the apps/platform stack to unblock VPC destroy
+# # -------------------------------------------------------------------------
+# resource "null_resource" "cleanup_on_destroy" {
+#   provisioner "local-exec" {
+#     when        = destroy
+#     interpreter = ["/bin/bash", "-c"]
+#     command     = <<EOT
+# set -euo pipefail
+# echo "[cleanup-destroy] Stripping finalizers on Ingresses (argocd, grafana) if present..."
+# kubectl patch ingress argocd -n argocd -p '{"metadata":{"finalizers":null}}' --type=merge >/dev/null 2>&1 || true
+# kubectl patch ingress grafana -n monitoring -p '{"metadata":{"finalizers":null}}' --type=merge >/dev/null 2>&1 || true
+
+# echo "[cleanup-destroy] Deleting Ingresses if they still exist..."
+# kubectl delete ingress argocd -n argocd --ignore-not-found >/dev/null 2>&1 || true
+# kubectl delete ingress grafana -n monitoring --ignore-not-found >/dev/null 2>&1 || true
+
+# echo "[cleanup-destroy] Deleting TargetGroupBindings to allow ALB controller to cleanup..."
+# kubectl delete targetgroupbindings.elbv2.k8s.aws --all -A --ignore-not-found >/dev/null 2>&1 || true
+
+# echo "[cleanup-destroy] Resolving region, cluster and VPC..."
+# REGION="$AWS_REGION"
+# [ -z "$REGION" ] && REGION="$AWS_DEFAULT_REGION"
+# [ -z "$REGION" ] && REGION="us-east-1"
+# CLUSTER="$CLUSTER_NAME"
+# [ -z "$CLUSTER" ] && CLUSTER="demo-eks-cluster"
+# VPC_ID=$(aws eks describe-cluster --name "$CLUSTER" --region "$REGION" --query 'cluster.resourcesVpcConfig.vpcId' --output text 2>/dev/null || echo "")
+# echo "  - REGION=$${REGION} CLUSTER=$${CLUSTER} VPC_ID=$${VPC_ID:-<unknown>}"
+
+# # Tuning knobs for cleanup behavior
+# TIMEOUT=$${CLEANUP_TIMEOUT:-900}
+# SLEEP=$${CLEANUP_SLEEP:-10}
+# FAST=$${FAST_ELB_CLEAN:-false}
+
+# if [[ "$FAST" == "true" ]]; then
+#   echo "[cleanup-destroy] FAST_ELB_CLEAN=true -> deleting ALBs/TargetGroups by cluster tag..."
+#   # Delete Load Balancers tagged to this cluster
+#   for alb in $(aws elbv2 describe-load-balancers --region "$REGION" \
+#       --query "LoadBalancers[?contains(Tags[?Key=='kubernetes.io/cluster/$${CLUSTER}'].Value | [0], 'owned')].LoadBalancerArn" \
+#       --output text 2>/dev/null || true); do
+#     [ -z "$alb" ] && continue
+#     echo "  - deleting LB: $alb"
+#     aws elbv2 delete-load-balancer --load-balancer-arn "$alb" --region "$REGION" >/dev/null 2>&1 || true
+#   done
+#   # Delete Target Groups tagged to this cluster
+#   for tg in $(aws elbv2 describe-target-groups --region "$REGION" \
+#       --query "TargetGroups[?contains(Tags[?Key=='kubernetes.io/cluster/$${CLUSTER}'].Value | [0], 'owned')].TargetGroupArn" \
+#       --output text 2>/dev/null || true); do
+#     [ -z "$tg" ] && continue
+#     echo "  - deleting TG: $tg"
+#     aws elbv2 delete-target-group --target-group-arn "$tg" --region "$REGION" >/dev/null 2>&1 || true
+#   done
+# fi
+
+# echo "[cleanup-destroy] Waiting for ALBs with cluster tag to disappear..."
+# START=$(date +%s)
+# while true; do
+#   count=$(aws elbv2 describe-load-balancers --region "$REGION" \
+#     --query "length(LoadBalancers[?contains(Tags[?Key=='kubernetes.io/cluster/$${CLUSTER}'].Value | [0], 'owned')])" 2>/dev/null || echo 0)
+#   echo "  - remaining ALBs tagged to cluster: $${count:-0}"
+#   if [[ "$${count:-0}" -eq 0 ]]; then
+#     break
+#   fi
+#   now=$(date +%s)
+#   if (( now - START > TIMEOUT )); then
+#     echo "[cleanup-destroy] Timeout waiting for ALB deletion; proceeding." >&2
+#     break
+#   fi
+#   sleep "$SLEEP"
+# done
+
+# echo "[cleanup-destroy] Deleting orphaned Target Groups in region $REGION..."
+# aws elbv2 describe-target-groups --region "$REGION" --query 'TargetGroups[?length(LoadBalancerArns)==`0`].[TargetGroupArn]' --output text 2>/dev/null | while read tg; do
+#   [ -z "$tg" ] && continue
+#   echo "  - deleting TG $tg"
+#   aws elbv2 delete-target-group --target-group-arn "$tg" --region "$REGION" >/dev/null 2>&1 || true
+# done
+
+# if [ -n "$VPC_ID" ]; then
+#   echo "[cleanup-destroy] Deleting ALB-created Security Groups in VPC $VPC_ID..."
+#   aws ec2 describe-security-groups --region "$REGION" \
+#     --filters Name=vpc-id,Values=$VPC_ID \
+#              Name=tag:elbv2.k8s.aws/cluster,Values="$CLUSTER" \
+#     --query 'SecurityGroups[].GroupId' --output text 2>/dev/null | while read sg; do
+#     [ -z "$sg" ] && continue
+#     echo "  - deleting SG $sg"
+#     aws ec2 delete-security-group --group-id "$sg" --region "$REGION" >/dev/null 2>&1 || true
+#   done
+# else
+#   echo "[cleanup-destroy] Skipping ALB SG deletion: could not resolve VPC ID."
+# fi
+
+# echo "[cleanup-destroy] Cleanup complete."
+# EOT
+#   }
+# }

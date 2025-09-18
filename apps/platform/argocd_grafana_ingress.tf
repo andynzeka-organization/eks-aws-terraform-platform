@@ -39,60 +39,15 @@ resource "kubernetes_ingress_v1" "argocd" {
 
   depends_on = [
     module.argocd,
-    null_resource.wait_alb_controller
+    null_resource.wait_alb_controller,
+    null_resource.alb_webhook_ready
   ]
 
-  wait_for_load_balancer = true
-}
-
-
-##############################
-# Grafana Ingress
-##############################
-resource "kubernetes_ingress_v1" "grafana" {
-  metadata {
-    name      = "grafana"
-    namespace = "monitoring"
-
-    annotations = merge({
-      "kubernetes.io/ingress.class"           = "alb"
-      "alb.ingress.kubernetes.io/scheme"      = "internet-facing"
-      "alb.ingress.kubernetes.io/target-type" = "ip"
-      "alb.ingress.kubernetes.io/group.name"  = "monitoring"
-      "alb.ingress.kubernetes.io/subnets"     = join(",", try(data.terraform_remote_state.infra.outputs.public_subnet_ids, []))
-    }, {})
+  wait_for_load_balancer = false
+  timeouts {
+    create = "10m"
   }
-
-  spec {
-    ingress_class_name = "alb"
-
-    rule {
-      http {
-        path {
-          path      = "/grafana"
-          path_type = "Prefix"
-
-          backend {
-            service {
-              name = "grafana"
-              port {
-                number = 80
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  depends_on = [
-    module.grafana,
-    null_resource.wait_alb_controller
-  ]
-
-  wait_for_load_balancer = true
 }
-
 
 
 # Strip Ingress finalizers right before destroy so Terraform doesn't hang
@@ -102,15 +57,15 @@ resource "kubernetes_ingress_v1" "grafana" {
 ##############################
 resource "null_resource" "strip_ingress_finalizers_on_destroy" {
   depends_on = [
-    kubernetes_ingress_v1.argocd,
-    kubernetes_ingress_v1.grafana
+    kubernetes_ingress_v1.argocd
   ]
 
   provisioner "local-exec" {
     command = <<EOT
 echo "[destroy-pre] Stripping Ingress finalizers to prevent hang..."
 kubectl patch ingress argocd -n argocd -p '{"metadata":{"finalizers":[]}}' --type=merge || true
-kubectl patch ingress grafana -n monitoring -p '{"metadata":{"finalizers":[]}}' --type=merge || true
+# Grafana disabled
+# kubectl patch ingress grafana -n monitoring -p '{"metadata":{"finalizers":[]}}' --type=merge || true
 EOT
     interpreter = ["/bin/bash", "-c"]
   }
@@ -139,31 +94,6 @@ EOT
   }
 }
 
-# ##############################
-# # Optional: Fix webhook SG permissions
-# ##############################
-# resource "null_resource" "validate_alb_webhook_sg" {
-#   provisioner "local-exec" {
-#     command = "chmod +x ./../../scripts/validate-alb-webhook-sg.sh && SG_VALIDATE_STRICT=false ./../../scripts/validate-alb-webhook-sg.sh || true"
-#     interpreter = ["/bin/bash", "-c"]
-#   }
-
-#   triggers = {
-#     always_run = timestamp()
-#   }
-# }
-
-resource "null_resource" "remove_grafana_ingress_finalizers" {
-  triggers = {
-    always_run = timestamp()
-  }
-
-  provisioner "local-exec" {
-    command = "kubectl patch ingress grafana -n monitoring -p '{\"metadata\":{\"finalizers\":null}}' --type=merge || true"
-  }
-
-  depends_on = [kubernetes_ingress_v1.grafana]
-}
 ##########################
 resource "null_resource" "wait_alb_webhook" {
   provisioner "local-exec" {
@@ -172,4 +102,45 @@ resource "null_resource" "wait_alb_webhook" {
   triggers = {
     always_run = timestamp()
   }
+}
+resource "null_resource" "wait_tgbs" {
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<EOT
+set -euo pipefail
+echo "[wait] Waiting for Ingress hostnames (ALB ready)..."
+START=$(date +%s)
+TIMEOUT=$${TIMEOUT:-1200}
+SLEEP=$${SLEEP:-10}
+
+wait_ingress_hostname() {
+  local ns="$1" name="$2"
+  while true; do
+    host=$(kubectl -n "$ns" get ingress "$name" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+    echo "  - $ns/$name hostname: $${host:-<none>}"
+    if [[ -n "$${host:-}" ]]; then
+      return 0
+    fi
+    now=$(date +%s)
+    if (( now - START > TIMEOUT )); then
+      echo "[wait] Timeout waiting for $ns/$name hostname; check controller logs and annotations." >&2
+      return 1
+    fi
+    sleep "$$SLEEP"
+  done
+}
+
+## Grafana disabled
+wait_ingress_hostname argocd argocd
+echo "[wait] Ingress hostnames are present."
+EOT
+  }
+
+  triggers = {
+    always_run = timestamp()
+  }
+
+  depends_on = [
+    kubernetes_ingress_v1.argocd
+  ]
 }

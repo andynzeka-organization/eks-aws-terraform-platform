@@ -9,6 +9,7 @@ module "argocd" {
   ]
 }
 
+/*
 module "grafana" {
   source              = "../../modules/grafana"
   namespace           = "monitoring"
@@ -17,3 +18,4 @@ module "grafana" {
   service_annotations = {}
   depends_on          = [null_resource.alb_webhook_ready]
 }
+*/

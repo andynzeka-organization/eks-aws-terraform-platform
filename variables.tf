@@ -81,8 +81,3 @@ variable "disk_size" {
   type        = number
   default     = 35
 }
-
-# variable "eks_cluster_name" {
-#   type        = string
-#   description = "Name of the EKS Cluster"
-# }

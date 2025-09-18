@@ -5,11 +5,5 @@ terraform {
     kubernetes = { source = "hashicorp/kubernetes", version = ">= 2.33.0" }
     helm       = { source = "hashicorp/helm", version = ">= 2.11" }
   }
-  backend "s3" {
-    bucket         = "zenobi-terraform-bucket"
-    key            = "apps/platform/terraform.tfstate"
-    region         = "us-east-1"
-    # dynamodb_table = "zenobi-terraform-eks-state-lock" # temporarily disabled state locking
-    encrypt        = true
-  }
 }
+

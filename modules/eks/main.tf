@@ -5,24 +5,6 @@ locals {
   node_name_tag = coalesce(var.node_name_tag, "${var.eks_cluster_name}-node")
 }
 
-# data "aws_ami" "eks_worker" {
-#   most_recent = true
-#   filter {
-#     name   = "name"
-#     values = ["amazon-eks-node-*-x86_64-*"]
-#   }
-#   filter {
-#     name   = "owner-id"
-#     values = ["602401143452"] # Amazon EKS AMI owner
-#   }
-#   filter {
-#     name   = "architecture"
-#     values = ["x86_64"]
-#   }
-#   owners = ["602401143452"]
-# }
-
-
 // IAM Role for EKS Control Plane
 data "aws_iam_policy" "AmazonEKSClusterPolicy" {
   arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"

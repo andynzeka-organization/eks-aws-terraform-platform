@@ -47,6 +47,14 @@ resource "aws_security_group" "eks_custom" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = [var.vpc_cidr]
+    description = "Allow intra-VPC pod-to-pod traffic"
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -99,6 +107,33 @@ resource "aws_security_group_rule" "allow_webhook_from_additional_sg" {
   description              = "Allow control plane/node additional SG to reach webhook pods (9443)"
   depends_on = [ aws_security_group.eks_custom ]
 }
+
+# Temporary broad rule to unblock webhook timeouts: allow 9443 from VPC CIDR
+# Tighten to Cluster SG once verified
+resource "aws_security_group_rule" "allow_webhook_from_vpc_cidr" {
+  type              = "ingress"
+  from_port         = 9443
+  to_port           = 9443
+  protocol          = "tcp"
+  security_group_id = aws_security_group.eks_custom.id
+  cidr_blocks       = [var.vpc_cidr]
+  description       = "TEMP: Allow EKS API to webhook over VPC CIDR (9443)"
+  depends_on        = [aws_security_group.eks_custom]
+}
+
+# Allow ALB -> Grafana pods (targetPort 3000) within VPC
+/*
+resource "aws_security_group_rule" "allow_alb_to_grafana" {
+  type              = "ingress"
+  from_port         = 3000
+  to_port           = 3000
+  protocol          = "tcp"
+  security_group_id = aws_security_group.eks_custom.id
+  cidr_blocks       = [var.vpc_cidr]
+  description       = "Allow ALB traffic to Grafana pod targetPort (3000) within VPC"
+  depends_on        = [aws_security_group.eks_custom]
+}
+*/
 
 # # From EKS NodeGroup SG to Pod SG
 # resource "aws_security_group_rule" "allow_webhook_from_node_sg" {

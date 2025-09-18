@@ -1,16 +1,3 @@
-# # Define a null_resource to run the update-kubeconfig command
-# resource "null_resource" "update_kubeconfig" {
-#   depends_on = [aws_eks_cluster.demo-eks-cluster]
-#   provisioner "local-exec" {
-#     command = "aws eks update-kubeconfig --name ${var.eks_cluster_name} --region ${var.region}"
-#   }
-
-#   # Ensure this resource runs only if it has changed
-#   triggers = {
-#     cluster_name = var.eks_cluster_name
-#   }
-# }
-
 resource "null_resource" "update_kubeconfig" {
   depends_on = [aws_eks_cluster.demo-eks-cluster]
 
@@ -47,4 +34,3 @@ resource "null_resource" "wait_for_k8s_api" {
     interpreter = ["bash", "-c"]
   }
 }
-

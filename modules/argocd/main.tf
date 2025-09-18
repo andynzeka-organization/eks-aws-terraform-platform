@@ -57,17 +57,3 @@ data "kubernetes_secret" "argocd_initial_admin" {
   }
   depends_on = [helm_release.argocd]
 }
-
-# resource "null_resource" "remove_ingress_finalizers" {
-#   provisioner "local-exec" {
-#     command = <<EOT
-#     kubectl get ingress -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"|"}{.metadata.name}{"\n"}{end}' | while read ns name; do
-#       kubectl patch ingress $name -n $ns -p '{"metadata":{"finalizers":null}}' --type=merge || true
-#     done
-#     EOT
-#   }
-
-#   triggers = {
-#     always_run = timestamp()
-#   }
-# }
