@@ -24,7 +24,7 @@ resource "null_resource" "remove_ingress_finalizers" {
   for_each = var.enable_ingress_cleanup ? { for i, ing in local.ingresses_to_clean : ing.metadata[0].name => ing } : {}
 
   provisioner "local-exec" {
-    command = <<EOT
+    command     = <<EOT
 echo "Removing finalizers for ingress ${each.value.metadata[0].name} in namespace ${each.value.metadata[0].namespace}..."
 kubectl patch ingress ${each.value.metadata[0].name} -n ${each.value.metadata[0].namespace} -p '{"metadata":{"finalizers":null}}' --type=merge || true
 EOT
@@ -47,7 +47,7 @@ EOT
 resource "null_resource" "wait_for_alb_deletion" {
   count = var.enable_ingress_cleanup ? 1 : 0
   provisioner "local-exec" {
-    command = <<EOT
+    command     = <<EOT
 echo "Fetching ALBs for cluster ${var.eks_cluster_name}..."
 alb_arns=$(aws elbv2 describe-load-balancers --region ${var.aws_region} \
   --query "LoadBalancers[?contains(Tags[?Key=='kubernetes.io/cluster/${var.eks_cluster_name}'].Value | [0], 'owned')].LoadBalancerArn" \
@@ -80,7 +80,7 @@ EOT
 resource "null_resource" "delete_orphaned_target_groups" {
   count = var.enable_ingress_cleanup ? 1 : 0
   provisioner "local-exec" {
-    command = <<EOT
+    command     = <<EOT
 echo "Fetching orphaned target groups..."
 aws elbv2 describe-target-groups --region ${var.aws_region} \
   --query 'TargetGroups[?length(LoadBalancerArns)==`0`].[TargetGroupArn]' --output text | while read tg_arn; do
@@ -111,7 +111,7 @@ data "aws_vpc" "platform_vpc" {
 
 resource "null_resource" "delete_k8s_alb_sgs" {
   provisioner "local-exec" {
-    command = <<EOT
+    command     = <<EOT
 echo "Fetching ALB-related security groups in VPC ${data.aws_vpc.platform_vpc.id}..."
 aws ec2 describe-security-groups \
   --filters Name=vpc-id,Values=${data.aws_vpc.platform_vpc.id} \
@@ -142,7 +142,7 @@ EOT
 resource "null_resource" "wait_and_delete_alb_sgs" {
   count = var.enable_ingress_cleanup ? 1 : 0
   provisioner "local-exec" {
-    command = <<EOT
+    command     = <<EOT
 echo "Final cleanup: waiting for any remaining ALBs..."
 alb_arns=$(aws elbv2 describe-load-balancers --region ${var.aws_region} \
   --query "LoadBalancers[?contains(Tags[?Key=='kubernetes.io/cluster/${var.eks_cluster_name}'].Value, 'owned')].LoadBalancerArn" \
@@ -172,6 +172,31 @@ EOT
     always_run = timestamp()
   }
 }
+resource "null_resource" "delete_residual_k8s_sgs" {
+  count = var.enable_ingress_cleanup ? 1 : 0
+
+  provisioner "local-exec" {
+    when        = destroy
+    command     = <<EOT
+echo "Deleting residual k8s-* security groups in VPC ${data.aws_vpc.platform_vpc.id}..."
+aws ec2 describe-security-groups   --filters Name=vpc-id,Values=${data.aws_vpc.platform_vpc.id} Name=group-name,Values=k8s-*   --query 'SecurityGroups[].GroupId' --output text 2>/dev/null | while read sg; do
+  [ -z "$sg" ] && continue
+  echo "  - deleting SG: $sg"
+  aws ec2 delete-security-group --group-id "$sg" >/dev/null 2>&1 || true
+done
+EOT
+    interpreter = ["/bin/bash", "-c"]
+  }
+
+  triggers = {
+    always_run = timestamp()
+  }
+
+  depends_on = [
+    null_resource.wait_and_delete_alb_sgs
+  ]
+}
+
 
 
 # -------------------------------------------------------------------------
@@ -179,7 +204,7 @@ EOT
 # -------------------------------------------------------------------------
 resource "null_resource" "force_remove_ingress_finalizers" {
   provisioner "local-exec" {
-    command = <<EOT
+    command     = <<EOT
 echo "Removing finalizers for argocd ingress..."
 kubectl patch ingress argocd -n argocd -p '{"metadata":{"finalizers":null}}' --type=merge || true
 

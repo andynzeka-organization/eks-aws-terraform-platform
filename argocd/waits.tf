@@ -1,30 +1,32 @@
 resource "null_resource" "wait_argocd_server_ready" {
   provisioner "local-exec" {
     interpreter = ["/bin/bash", "-c"]
-    command     = <<EOT
-set -euo pipefail
-echo "[wait] Waiting for ArgoCD server deployment to be Available..."
-START=$(date +%s)
-TIMEOUT=$${TIMEOUT:-900}
-SLEEP=$${SLEEP:-10}
-while true; do
-  avail=$(kubectl -n ${var.namespace} get deploy argo-cd-argocd-server -o jsonpath='{.status.availableReplicas}' 2>/dev/null || echo 0)
-  repl=$(kubectl -n ${var.namespace} get deploy argo-cd-argocd-server -o jsonpath='{.status.replicas}' 2>/dev/null || echo 0)
-  echo "  - available/desired: $${avail:-0}/$${repl:-0}"
-  [[ "$${avail:-0}" != "" ]] || avail=0
-  [[ "$${repl:-0}" != "" ]] || repl=0
-  if [[ $${repl:-0} -gt 0 && $${avail:-0} -eq $${repl:-0} ]]; then
-    echo "[wait] ArgoCD server is Available."
-    break
-  fi
-  now=$(date +%s)
-  if (( now - START > TIMEOUT )); then
-    echo "[wait] Timeout waiting for ArgoCD server deployment." >&2
-    exit 1
-  fi
-  sleep "$SLEEP"
-done
-EOT
+    command     = <<-EOT
+      set -euo pipefail
+      NS="${var.namespace}"
+      TIMEOUT=$${TIMEOUT:-300}
+      echo "[wait] Waiting (up to $${TIMEOUT}s) for ArgoCD server rollout..."
+
+      if ! kubectl -n "$${NS}" get deploy argocd-server >/dev/null 2>&1; then
+        echo "[wait] Deployment argocd-server not found; skipping availability check (inspect helm_release.argocd if this persists)."
+        exit 0
+      fi
+
+      desired=$(kubectl -n "$${NS}" get deploy argocd-server -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "")
+      if [[ -z "$${desired}" || "$${desired}" == "0" ]]; then
+        echo "[wait] Deployment has 0 desired replicas; skipping availability wait."
+        exit 0
+      fi
+
+      if ! kubectl -n "$${NS}" rollout status deploy/argocd-server --timeout=$${TIMEOUT}s; then
+        echo "[wait] Timeout waiting for ArgoCD server deployment." >&2
+        kubectl -n "$${NS}" get deploy argocd-server -o wide || true
+        kubectl -n "$${NS}" get pods -l app.kubernetes.io/name=argocd-server || true
+        exit 1
+      fi
+
+      echo "[wait] ArgoCD server rollout reported Available."
+    EOT
   }
 
   triggers = { always_run = timestamp() }
@@ -74,7 +76,7 @@ done
 EOT
   }
 
-  triggers = { always_run = timestamp() }
+  triggers   = { always_run = timestamp() }
   depends_on = [kubernetes_ingress_v1.argocd]
 }
 

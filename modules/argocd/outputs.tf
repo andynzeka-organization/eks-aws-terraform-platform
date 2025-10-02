@@ -1,7 +1,17 @@
 output "service_hostname" {
   description = "ArgoCD Service external hostname or IP"
   # May be null when Service is ClusterIP (expected when exposed via shared ALB)
-  value       = try(data.kubernetes_service.argocd_server.status[0].load_balancer[0].ingress[0].hostname, null)
+  value = try(data.kubernetes_service.argocd_server.status[0].load_balancer[0].ingress[0].hostname, null)
+}
+
+output "service_name" {
+  description = "Kubernetes Service name backing the ArgoCD server"
+  value       = data.kubernetes_service.argocd_server.metadata[0].name
+}
+
+output "service_http_port" {
+  description = "Service port exposing ArgoCD HTTP endpoint"
+  value       = try(data.kubernetes_service.argocd_server.spec[0].port[0].port, 80)
 }
 
 output "admin_password" {

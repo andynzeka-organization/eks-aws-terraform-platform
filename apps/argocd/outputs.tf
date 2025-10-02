@@ -16,6 +16,6 @@ ArgoCD
 - URL: ${coalesce(module.argocd.service_hostname, "<pending>") != null ? "https://" : ""}${coalesce(module.argocd.service_hostname, "<pending>")}
 - Username: admin
 - Get password: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo
-- If no external address: kubectl -n argocd port-forward svc/argo-cd-argocd-server 8080:443
+- If no external address: kubectl -n argocd port-forward svc/argocd-server 8080:443
 EOT
 }

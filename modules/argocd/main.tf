@@ -3,12 +3,38 @@ resource "kubernetes_namespace" "argocd_namespace" {
   metadata { name = var.namespace }
 }
 
+locals {
+  argocd_crds = [
+    "applications.argoproj.io",
+    "appprojects.argoproj.io",
+    "argocdexports.argoproj.io",
+    "applicationsets.argoproj.io"
+  ]
+}
+
+resource "null_resource" "reset_argocd_crd_annotations" {
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      for crd in ${join(" ", local.argocd_crds)}; do
+        kubectl annotate crd "$crd" meta.helm.sh/release-name- --overwrite >/dev/null 2>&1 || true
+        kubectl annotate crd "$crd" meta.helm.sh/release-namespace- --overwrite >/dev/null 2>&1 || true
+      done
+    EOT
+  }
+
+  triggers = {
+    cleanup = timestamp()
+  }
+}
+
 resource "helm_release" "argocd" {
-  name       = "argo-cd"
-  repository = "https://argoproj.github.io/argo-helm"
-  chart      = "argo-cd"
-  version    = "5.51.6" # match with your values
-  namespace  = var.namespace
+  name              = "argocd"
+  repository        = "https://argoproj.github.io/argo-helm"
+  chart             = "argo-cd"
+  version           = "5.51.6" # match with your values
+  namespace         = var.namespace
   wait              = true
   timeout           = 300
   dependency_update = true
@@ -16,6 +42,8 @@ resource "helm_release" "argocd" {
   cleanup_on_fail   = true
 
   values = [yamlencode({
+    nameOverride     = "argocd"
+    fullnameOverride = "argocd"
     configs = {
       params = {
         "server.insecure" = true
@@ -38,13 +66,14 @@ resource "helm_release" "argocd" {
   })]
 
   depends_on = [
-    kubernetes_namespace.argocd_namespace, 
+    kubernetes_namespace.argocd_namespace,
+    null_resource.reset_argocd_crd_annotations,
   ]
 }
 
 data "kubernetes_service" "argocd_server" {
   metadata {
-    name      = "argo-cd-argocd-server"
+    name      = "argocd-server"
     namespace = var.namespace
   }
   depends_on = [helm_release.argocd]

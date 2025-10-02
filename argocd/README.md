@@ -21,7 +21,7 @@ Order of Operation
 1) Configure providers from the EKS cluster identity (aws, kubernetes, helm).
 2) Create namespace.
 3) Install ArgoCD Helm chart (server at /argocd).
-4) Wait for argo-cd-argocd-server deployment to be Available.
+4) Wait for argocd-server deployment to be Available.
 5) Optionally wait for ALB controller to be Available (kube-system).
 6) Create ALB Ingress pointing to the ArgoCD server Service.
 7) Wait for Ingress hostname to be assigned.

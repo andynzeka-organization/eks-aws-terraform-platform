@@ -26,9 +26,9 @@ resource "kubernetes_ingress_v1" "argocd" {
 
           backend {
             service {
-              name = "argo-cd-argocd-server"
+              name = module.argocd.service_name
               port {
-                number = 443
+                number = module.argocd.service_http_port
               }
             }
           }
@@ -61,7 +61,7 @@ resource "null_resource" "strip_ingress_finalizers_on_destroy" {
   ]
 
   provisioner "local-exec" {
-    command = <<EOT
+    command     = <<EOT
 echo "[destroy-pre] Stripping Ingress finalizers to prevent hang..."
 kubectl patch ingress argocd -n argocd -p '{"metadata":{"finalizers":[]}}' --type=merge || true
 # Grafana disabled
@@ -83,7 +83,7 @@ EOT
 ##############################
 resource "null_resource" "wait_alb_controller" {
   provisioner "local-exec" {
-    command = <<EOT
+    command     = <<EOT
 kubectl -n kube-system wait --for=condition=ready pod -l app.kubernetes.io/name=aws-load-balancer-controller --timeout=300s
 EOT
     interpreter = ["/bin/bash", "-c"]

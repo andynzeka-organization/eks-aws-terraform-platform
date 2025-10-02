@@ -213,6 +213,15 @@ delete_alb_sgs_in_vpc() {
       echo "  - deleting SG: $sg"
       aws ec2 delete-security-group --group-id "$sg" >/dev/null 2>&1 || true
     done
+
+  # Additional pass: explicit k8s-* group-name match (covers controller-generated SGs)
+  local extra
+  extra=$(aws ec2 describe-security-groups --filters Name=vpc-id,Values="${vpc_id}" Name=group-name,Values="k8s-*" --query 'SecurityGroups[].GroupId' --output text 2>/dev/null || true)
+  for sg in $extra; do
+    [[ -z "$sg" ]] && continue
+    echo "  - deleting SG (group-name filter): $sg"
+    aws ec2 delete-security-group --group-id "$sg" >/dev/null 2>&1 || true
+  done
 }
 
 # Print a quick blockers report for the VPC

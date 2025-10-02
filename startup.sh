@@ -137,11 +137,17 @@ verify_dns_connectivity() {
   if ! kubectl "${KUBECTL_ARGS[@]}" get ns "$ns" >/dev/null 2>&1; then
     ns=default
   fi
-  if kubectl "${KUBECTL_ARGS[@]}" run argocd-dns-check --rm -i --restart=Never -n "$ns" \
-      --image=curlimages/curl:8.8.0 --command -- curl -sS --max-time 15 -I https://github.com >/dev/null; then
-    echo "[startup] DNS and outbound HTTPS verified."
+  local job="argocd-dns-check-$(date +%s)"
+  if kubectl "${KUBECTL_ARGS[@]}" -n "$ns" create job "$job" \
+      --image=curlimages/curl:8.8.0 -- curl -sS --max-time 15 -I https://github.com >/dev/null 2>&1; then
+    if kubectl "${KUBECTL_ARGS[@]}" -n "$ns" wait --for=condition=complete "job/$job" --timeout=45s >/dev/null 2>&1; then
+      echo "[startup] DNS and outbound HTTPS verified."
+    else
+      echo "[startup] WARNING: DNS/HTTPS verification job timed out; check network egress." >&2
+    fi
+    kubectl "${KUBECTL_ARGS[@]}" -n "$ns" delete job "$job" --ignore-not-found --wait=false >/dev/null 2>&1 || true
   else
-    echo "[startup] WARNING: Unable to reach https://github.com from the cluster. Check node security group rules, route tables, or proxy settings." >&2
+    echo "[startup] WARNING: Unable to create dns-check job; skipping connectivity verification." >&2
   fi
 }
 
